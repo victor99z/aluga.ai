@@ -54,7 +54,7 @@ func Save(data model.Imovel) {
 	defer stmt.Close()
 
 	// Execute the statement
-	_, err = stmt.Exec(data.Website, data.Valor, data.Quartos, data.Banheiros, data.Tamanho, data.Desc, data.Cidade, data.Bairro, data.Url)
+	_, err = stmt.Exec(data.Website, data.ValorTotal, data.Quartos, data.Banheiros, data.TamanhoTotal, data.Desc, data.Cidade, data.Bairro, data.Url)
 	if err != nil {
 		log.Fatal(err)
 	}

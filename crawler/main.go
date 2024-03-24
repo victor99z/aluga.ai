@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
-	"strconv"
-	"strings"
 
 	"github.com/gocolly/colly/v2"
 	"github.com/victor99z/aluga.ai/config"
@@ -16,48 +14,48 @@ func main() {
 
 	//repository.CreateTable()
 
-	c := colly.NewCollector()
+	mainPage := colly.NewCollector()
 
 	linksFromPage := make(map[string]bool)
 
-	imoveis := []model.Imovel{}
+	// imoveis := []model.Imovel{}
 
 	// Find and visit all links
 	// div.imovel-data > header > div > strong
-	c.OnHTML("article.imovel div.imovel-data", func(e *colly.HTMLElement) {
+	mainPage.OnHTML("article.imovel", func(e *colly.HTMLElement) {
 
 		r, _ := regexp.Compile("/alugar/apartamento")
 
-		if r.MatchString(e.Attr("href")) {
-			linksFromPage[e.Attr("href")] = true
+		href := e.ChildAttr("a[href]", "href")
+
+		if r.MatchString(href) {
+			linksFromPage[href] = true
 		}
+	})
 
+	mainPage.Visit(config.URL)
+
+	imoveisPage := colly.NewCollector()
+
+	imoveis := []model.Imovel{}
+
+	imoveisPage.OnHTML("div.visualizar-content", func(e *colly.HTMLElement) {
 		newImovel := model.Imovel{}
-
-		newImovel.Url = e.Attr("a[href]")
+		newImovel.Url = e.Request.URL.String()
 		newImovel.Website = "imoveis-sc"
-		tmp := strings.Split(e.ChildText("div.imovel-data > header > div > strong"), ", ")
-		newImovel.Cidade = tmp[0]
-		newImovel.Bairro = tmp[1]
-
-		parseValue, _ := strconv.ParseFloat(e.ChildText("#totalvalue"), 32)
-		newImovel.Valor = parseValue
-		parseTamanho, _ := strconv.Atoi(strings.Split(e.ChildText("div.lista-imoveis > article:nth-child(1) > div.imovel-data > ul > li:nth-child(3) > span > strong"), ",")[0])
-		newImovel.Tamanho = parseTamanho
-		parseQuartos, _ := strconv.Atoi(e.ChildText("div.lista-imoveis > article:nth-child(1) > div.imovel-data > ul > li:nth-child(1) > span > strong"))
-		newImovel.Quartos = parseQuartos
+		newImovel.Desc = e.ChildText("section.visualizar-descricao-wrapper")
 
 		imoveis = append(imoveis, newImovel)
 
 	})
 
-	c.Visit(config.URL)
+	for link := range linksFromPage {
+		imoveisPage.Visit(link)
+	}
 
-	// fmt.Println(imoveis)
+	parseJson, _ := json.MarshalIndent(imoveis, "", "  ")
 
-	fodase, _ := json.MarshalIndent(imoveis, "", "  ")
-
-	fmt.Println(string(fodase))
+	fmt.Println(string(parseJson))
 
 	//repository.Save(data)
 }
