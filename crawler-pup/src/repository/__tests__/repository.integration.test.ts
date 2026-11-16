@@ -8,6 +8,7 @@ import {
 } from "bun:test";
 import { setAdapter } from "../../clients/db";
 import { SqliteAdapter } from "../../clients/sqlite-adapter";
+import { Logger, setLogSink } from "../../config/logger";
 import { CrawlerRunsRepository } from "../crawler-runs-repository";
 import { ImoveisRepository } from "../imoveis-repository";
 
@@ -25,6 +26,7 @@ describe("ImoveisRepository (SqliteAdapter :memory:)", () => {
   });
 
   afterAll(() => {
+    setLogSink(null);
     sqlite.close();
     setAdapter(null);
   });
@@ -170,6 +172,7 @@ describe("CrawlerRunsRepository (SqliteAdapter :memory:)", () => {
   });
 
   afterAll(() => {
+    setLogSink(null);
     sqlite.close();
     setAdapter(null);
   });
@@ -242,5 +245,18 @@ describe("CrawlerRunsRepository (SqliteAdapter :memory:)", () => {
     const perSite = await CrawlerRunsRepository.getLatestPerSite();
     const names = perSite.map((r) => r.siteName).sort();
     expect(names).toEqual(["olx-imoveis", "zap-imoveis"]);
+  });
+
+  test("init wires Logger sink to persist logs into crawler_logs", async () => {
+    await CrawlerRunsRepository.init();
+    Logger.info({ site: "olx-imoveis" }, "Test persisted log");
+    await CrawlerRunsRepository.flushLogs();
+
+    const logs = await CrawlerRunsRepository.getLatestLogs(10);
+    expect(logs.length).toBe(1);
+    expect(logs[0]?.level).toBe("info");
+    expect(logs[0]?.message).toBe("Test persisted log");
+    expect(logs[0]?.context).toContain("olx-imoveis");
+    setLogSink(null);
   });
 });

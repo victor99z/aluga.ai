@@ -1,11 +1,21 @@
 import { getAdapter } from "../clients/db";
-import type { CrawlerRunRow } from "../clients/db-adapter";
+import type {
+  CrawlerLogInsert,
+  CrawlerLogRow,
+  CrawlerRunRow,
+} from "../clients/db-adapter";
+import { flushLogs, setLogSink } from "../config/logger";
 
-export type { CrawlerRunRow } from "../clients/db-adapter";
+export type {
+  CrawlerLogInsert,
+  CrawlerLogRow,
+  CrawlerRunRow,
+} from "../clients/db-adapter";
 
 export class CrawlerRunsRepository {
   static async init() {
     await getAdapter().ensureSchema();
+    setLogSink((entry) => getAdapter().insertCrawlerLog(entry));
   }
 
   static async create(siteName: string): Promise<{ id: number }> {
@@ -44,5 +54,17 @@ export class CrawlerRunsRepository {
 
   static async getTotalListings(): Promise<number> {
     return getAdapter().countImoveis();
+  }
+
+  static async log(data: CrawlerLogInsert): Promise<void> {
+    return getAdapter().insertCrawlerLog(data);
+  }
+
+  static async getLatestLogs(limit = 50): Promise<CrawlerLogRow[]> {
+    return getAdapter().getLatestCrawlerLogs(limit);
+  }
+
+  static async flushLogs(): Promise<void> {
+    return flushLogs();
   }
 }

@@ -1,6 +1,8 @@
 import { Database } from "bun:sqlite";
 import {
   DEFAULT_SEED_LISTINGS,
+  type CrawlerLogInsert,
+  type CrawlerLogRow,
   type CrawlerRunFinish,
   type CrawlerRunRow,
   type DbAdapter,
@@ -87,7 +89,9 @@ export class SqliteAdapter implements DbAdapter {
   }
 
   reset(): void {
-    this.db.exec("DELETE FROM imoveis_temp; DELETE FROM listings; DELETE FROM crawler_runs;");
+    this.db.exec(
+      "DELETE FROM imoveis_temp; DELETE FROM listings; DELETE FROM crawler_runs; DELETE FROM crawler_logs;",
+    );
   }
 
   seedDefaults(): void {
@@ -182,6 +186,14 @@ export class SqliteAdapter implements DbAdapter {
         listings_scraped INTEGER DEFAULT 0,
         errors           INTEGER DEFAULT 0,
         error_msg        TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS crawler_logs (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        level      TEXT NOT NULL,
+        message    TEXT NOT NULL,
+        context    TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
       );
     `);
 
@@ -439,5 +451,31 @@ export class SqliteAdapter implements DbAdapter {
         )
         .get(cutoff) as { n: number }
     ).n;
+  }
+
+  async insertCrawlerLog(data: CrawlerLogInsert): Promise<void> {
+    const createdAt = (data.createdAt ?? new Date()).toISOString();
+    const contextJson = data.context ? JSON.stringify(data.context) : null;
+    this.db
+      .prepare(
+        "INSERT INTO crawler_logs (level, message, context, created_at) VALUES (?, ?, ?, ?)",
+      )
+      .run(data.level, data.message, contextJson, createdAt);
+  }
+
+  async getLatestCrawlerLogs(limit: number): Promise<CrawlerLogRow[]> {
+    const rows = this.db
+      .prepare(
+        "SELECT * FROM crawler_logs ORDER BY created_at DESC, id DESC LIMIT ?",
+      )
+      .all(limit) as Record<string, unknown>[];
+
+    return rows.map((row) => ({
+      id: row.id as number,
+      level: row.level as string,
+      message: row.message as string,
+      context: (row.context as string) ?? null,
+      createdAt: new Date(row.created_at as string),
+    }));
   }
 }

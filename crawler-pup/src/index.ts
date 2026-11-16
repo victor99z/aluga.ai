@@ -1,6 +1,5 @@
 import { getAdapter } from "./clients/db";
 import { Logger } from "./config/logger";
-import { startMetricsServer } from "./metrics";
 import { SCRAPER_REGISTRY } from "./pages";
 import type { ExtractedListing } from "./pages/base-scraper";
 import { CrawlerRunsRepository } from "./repository/crawler-runs-repository";
@@ -34,24 +33,22 @@ function parseCliArgs(argv: string[]): CliOptions {
 }
 
 async function runCrawler(): Promise<void> {
-  const metricsPort = parseInt(process.env.METRICS_PORT ?? "9100", 10);
-  startMetricsServer(metricsPort);
-
   const args = process.argv.slice(2);
   const { pageStartOverride, shouldDelete, sampleLimit, allSites } =
     parseCliArgs(args);
+
+  await getAdapter().ensureSchema();
+  await CrawlerRunsRepository.init();
 
   Logger.info(
     { args, pageStartOverride, shouldDelete, sampleLimit, allSites },
     "Crawler initialized",
   );
 
-  await getAdapter().ensureSchema();
-  await CrawlerRunsRepository.init();
-
   if (shouldDelete) {
     const res = await ImoveisRepository.deleteAllInBatch();
     Logger.info(res, "Deleted all listings from imoveis_temp");
+    await CrawlerRunsRepository.flushLogs();
     return;
   }
 
@@ -112,10 +109,12 @@ async function runCrawler(): Promise<void> {
   if (sampleLimit !== null) {
     console.log("\n=== SAMPLE RESULTS ===");
     console.log(JSON.stringify(sampleResults, null, 2));
+    await CrawlerRunsRepository.flushLogs();
     process.exit(0);
   }
 
   Logger.info("Crawl complete.");
+  await CrawlerRunsRepository.flushLogs();
 }
 
 runCrawler();

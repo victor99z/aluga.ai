@@ -7,12 +7,18 @@ function createMockPocketBase(overrides?: {
   listings?: Array<Record<string, unknown>>;
   imoveis?: Array<Record<string, unknown>>;
   hasCrawlerRuns?: boolean;
+  hasCrawlerLogs?: boolean;
+  canCreateCollections?: boolean;
   batchFails?: boolean;
 }) {
   const listings = overrides?.listings ?? [];
   const imoveis = overrides?.imoveis ?? [];
   const crawlerRuns: Array<Record<string, unknown>> = [];
-  const hasCrawlerRuns = overrides?.hasCrawlerRuns ?? true;
+  const crawlerLogs: Array<Record<string, unknown>> = [];
+  const createdCollections: string[] = [];
+  let hasCrawlerRuns = overrides?.hasCrawlerRuns ?? true;
+  let hasCrawlerLogs = overrides?.hasCrawlerLogs ?? true;
+  const canCreateCollections = overrides?.canCreateCollections ?? false;
   const batchSizes: number[] = [];
   let seq = 1;
 
@@ -113,11 +119,40 @@ function createMockPocketBase(overrides?: {
         };
       },
     },
+    crawler_logs: {
+      create: async (data: Record<string, unknown>) => {
+        if (!hasCrawlerLogs) throw new ClientResponseError({ status: 404 });
+        const rec = { id: `pb-log-${seq++}`, ...data };
+        crawlerLogs.push(rec);
+        return rec;
+      },
+      getList: async (page: number, perPage: number) => {
+        if (!hasCrawlerLogs) throw new ClientResponseError({ status: 404 });
+        return {
+          page,
+          perPage,
+          totalItems: crawlerLogs.length,
+          totalPages: 1,
+          items: [...crawlerLogs].reverse().slice(0, perPage),
+        };
+      },
+    },
   };
 
   const mockPb = {
     authStore: { token: "", isValid: false, save: () => {} },
     autoCancellation: () => {},
+    collections: {
+      create: async (schema: { name: string }) => {
+        if (!canCreateCollections) {
+          throw new ClientResponseError({ status: 403 });
+        }
+        createdCollections.push(schema.name);
+        if (schema.name === "crawler_runs") hasCrawlerRuns = true;
+        if (schema.name === "crawler_logs") hasCrawlerLogs = true;
+        return schema;
+      },
+    },
     filter: (expr: string, params?: Record<string, unknown>) => {
       let out = expr;
       if (params) {
@@ -158,6 +193,8 @@ function createMockPocketBase(overrides?: {
     listings,
     imoveis,
     crawlerRuns,
+    crawlerLogs,
+    createdCollections,
     batchSizes,
   };
 }
@@ -331,5 +368,44 @@ describe("PocketBaseAdapter", () => {
     expect(latest[0]?.listingsScraped).toBe(45);
     expect(await adapter.countRunsSince(1)).toBe(1);
     expect(await adapter.countErrorsSince(1)).toBe(0);
+  });
+
+  test("ensureSchema auto-creates crawler_runs and crawler_logs when missing and permitted", async () => {
+    const mock = createMockPocketBase({
+      hasCrawlerRuns: false,
+      hasCrawlerLogs: false,
+      canCreateCollections: true,
+    });
+    const adapter = new PocketBaseAdapter({ client: mock.client });
+    await adapter.ensureSchema();
+
+    expect(mock.createdCollections).toEqual(["crawler_runs", "crawler_logs"]);
+
+    await adapter.insertCrawlerLog({
+      level: "info",
+      message: "Crawler started",
+      context: { site: "olx-imoveis" },
+    });
+
+    expect(mock.crawlerLogs.length).toBe(1);
+    const logs = await adapter.getLatestCrawlerLogs(10);
+    expect(logs[0]?.level).toBe("info");
+    expect(logs[0]?.message).toBe("Crawler started");
+  });
+
+  test("crawler_logs falls back to memory when collection is unavailable", async () => {
+    const mock = createMockPocketBase({ hasCrawlerLogs: false });
+    const adapter = new PocketBaseAdapter({ client: mock.client });
+
+    await adapter.insertCrawlerLog({
+      level: "error",
+      message: "Network failure",
+      context: { page: 2 },
+    });
+
+    const logs = await adapter.getLatestCrawlerLogs(5);
+    expect(logs.length).toBe(1);
+    expect(logs[0]?.level).toBe("error");
+    expect(logs[0]?.message).toBe("Network failure");
   });
 });

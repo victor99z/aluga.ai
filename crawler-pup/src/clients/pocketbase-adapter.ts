@@ -3,6 +3,8 @@ import { Logger } from "../config/logger";
 import { DownloadImageAndCreateFile } from "../utils/download-image";
 import {
   DEFAULT_SEED_LISTINGS,
+  type CrawlerLogInsert,
+  type CrawlerLogRow,
   type CrawlerRunFinish,
   type CrawlerRunRow,
   type DbAdapter,
@@ -18,7 +20,32 @@ const COLLECTIONS = {
   IMOVEIS: "imoveis_temp",
   LISTINGS: "listings",
   CRAWLER_RUNS: "crawler_runs",
+  CRAWLER_LOGS: "crawler_logs",
 } as const;
+
+interface CollectionFieldSpec {
+  name: string;
+  type: "text" | "number" | "date" | "json" | "bool";
+  required?: boolean;
+}
+
+const CRAWLER_RUNS_FIELDS: CollectionFieldSpec[] = [
+  { name: "site_name", type: "text", required: true },
+  { name: "started_at", type: "date" },
+  { name: "finished_at", type: "date" },
+  { name: "status", type: "text" },
+  { name: "pages_crawled", type: "number" },
+  { name: "listings_scraped", type: "number" },
+  { name: "errors", type: "number" },
+  { name: "error_msg", type: "text" },
+];
+
+const CRAWLER_LOGS_FIELDS: CollectionFieldSpec[] = [
+  { name: "level", type: "text", required: true },
+  { name: "message", type: "text", required: true },
+  { name: "context", type: "json" },
+  { name: "created_at", type: "date" },
+];
 
 const BATCH_CHUNK_SIZE = 40;
 
@@ -170,7 +197,10 @@ export class PocketBaseAdapter implements DbAdapter {
 
   private useFallbackRuns = false;
   private fallbackRuns: CrawlerRunRow[] = [];
+  private useFallbackLogs = false;
+  private fallbackLogs: CrawlerLogRow[] = [];
   private nextRunId = 1;
+  private nextLogId = 1;
   private pbRunIdMap = new Map<number, string>();
   private pbIdToRunId = new Map<string, number>();
 
@@ -222,8 +252,65 @@ export class PocketBaseAdapter implements DbAdapter {
     await this.authPromise;
   }
 
+  private async ensureCollectionExists(
+    name: string,
+    fields: CollectionFieldSpec[],
+  ): Promise<boolean> {
+    try {
+      await this.pb.collection(name).getList(1, 1, { fields: "id" });
+      return true;
+    } catch (err) {
+      if (!isNotFoundError(err)) {
+        return true;
+      }
+    }
+
+    try {
+      await this.pb.collections.create({
+        name,
+        type: "base",
+        fields,
+      } as never);
+      return true;
+    } catch (err) {
+      if (getHttpStatus(err) === 400) {
+        try {
+          await this.pb.collections.create({
+            name,
+            type: "base",
+            schema: fields,
+          } as never);
+          return true;
+        } catch (fallbackErr) {
+          Logger.warn(
+            { collection: name, err: fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr) },
+            `Could not auto-create PocketBase collection ${name}`,
+          );
+          return false;
+        }
+      }
+      Logger.warn(
+        { collection: name, err: err instanceof Error ? err.message : String(err) },
+        `Could not auto-create PocketBase collection ${name}`,
+      );
+      return false;
+    }
+  }
+
   async ensureSchema(): Promise<void> {
     await this.ensureAuth();
+
+    const runsReady = await this.ensureCollectionExists(
+      COLLECTIONS.CRAWLER_RUNS,
+      CRAWLER_RUNS_FIELDS,
+    );
+    if (!runsReady) this.useFallbackRuns = true;
+
+    const logsReady = await this.ensureCollectionExists(
+      COLLECTIONS.CRAWLER_LOGS,
+      CRAWLER_LOGS_FIELDS,
+    );
+    if (!logsReady) this.useFallbackLogs = true;
 
     try {
       const existing = await this.pb
@@ -660,5 +747,70 @@ export class PocketBaseAdapter implements DbAdapter {
     return this.fallbackRuns.filter(
       (r) => r.startedAt.getTime() > cutoff.getTime(),
     ).length;
+  }
+
+  private enableFallbackLogs(err: unknown): void {
+    if (!this.useFallbackLogs) {
+      this.useFallbackLogs = true;
+      console.warn(
+        "PocketBase crawler_logs collection unavailable; using in-memory fallback:",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
+  async insertCrawlerLog(data: CrawlerLogInsert): Promise<void> {
+    const createdAt = data.createdAt ?? new Date();
+    const row: CrawlerLogRow = {
+      id: this.nextLogId++,
+      level: data.level,
+      message: data.message,
+      context: data.context ? JSON.stringify(data.context) : null,
+      createdAt,
+    };
+    this.fallbackLogs.push(row);
+
+    if (this.useFallbackLogs) return;
+
+    try {
+      await this.ensureAuth();
+      await this.pb.collection(COLLECTIONS.CRAWLER_LOGS).create({
+        level: data.level,
+        message: data.message,
+        context: data.context ?? null,
+        created_at: createdAt.toISOString(),
+      });
+    } catch (err) {
+      if (isMissingCollectionError(err)) {
+        this.enableFallbackLogs(err);
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  async getLatestCrawlerLogs(limit: number): Promise<CrawlerLogRow[]> {
+    if (!this.useFallbackLogs) {
+      try {
+        await this.ensureAuth();
+        const res = await this.pb
+          .collection(COLLECTIONS.CRAWLER_LOGS)
+          .getList<Record<string, unknown>>(1, limit, { sort: "-created_at" });
+        return res.items.map((r) => ({
+          id: String(r.id ?? ""),
+          level: String(r.level ?? "info"),
+          message: String(r.message ?? ""),
+          context: serializeJsonField(r.context),
+          createdAt: toDate(r.created_at) ?? toDate(r.created) ?? new Date(),
+        }));
+      } catch (err) {
+        if (!isMissingCollectionError(err)) throw err;
+        this.enableFallbackLogs(err);
+      }
+    }
+
+    return [...this.fallbackLogs]
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, limit);
   }
 }

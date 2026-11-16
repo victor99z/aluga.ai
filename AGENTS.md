@@ -5,7 +5,7 @@ High-signal context for sessions in this repo.
 ## Repository layout
 
 - **`crawler-pup/`** — Bun + TypeScript crawler application. All dev commands run from here.
-- **Root** — Docker Compose for `crawler-pup`, Prometheus, and Grafana.
+- **Root** — `docker-compose.yaml` for deploying `crawler-pup`.
 
 ## Runtime
 
@@ -16,7 +16,8 @@ High-signal context for sessions in this repo.
 ## Persistence (`DbAdapter`)
 
 - Persistence is abstracted behind `DbAdapter` (`src/clients/db-adapter.ts`) and resolved via `getAdapter()` / `setAdapter()` (`src/clients/db.ts`).
-- **PocketBase (`PocketBaseAdapter`, default)**: Connects to an external PocketBase instance via `POCKETBASE_URL` (default `https://pb.victorbernardes.me`) with optional auth (`POCKETBASE_EMAIL`/`POCKETBASE_PASSWORD` or `POCKETBASE_TOKEN`). Uploads downloaded image `File`s to `imoveis_temp.images` unless `POCKETBASE_UPLOAD_IMAGES=false`. Falls back to in-memory run telemetry if the `crawler_runs` collection is absent.
+- **PocketBase (`PocketBaseAdapter`, default)**: Connects to an external PocketBase instance via `POCKETBASE_URL` (default `https://pb.victorbernardes.me`) with optional auth (`POCKETBASE_EMAIL`/`POCKETBASE_PASSWORD` or `POCKETBASE_TOKEN`). Uploads downloaded image `File`s to `imoveis_temp.images` unless `POCKETBASE_UPLOAD_IMAGES=false`.
+- **Logs & Telemetry in PocketBase**: `ensureSchema()` auto-creates `crawler_runs` (per-run summary) and `crawler_logs` (application log sink wired via `setLogSink()` in `CrawlerRunsRepository.init()`) when permitted, falling back to in-memory storage if collections are unavailable.
 - **SQLite (`SqliteAdapter`)**: Activated when `DB_TYPE=sqlite` (using `bun:sqlite`, `DATABASE_URL` or `./crawler.sqlite`). Also used in-memory (`:memory:`) by the integration test suite.
 - Seeds default `listings` rows from `DEFAULT_SEED_LISTINGS` via `ensureSchema()`.
 
@@ -37,13 +38,10 @@ bun test --coverage   # run with coverage report
 cd crawler-pup
 bun run src/index.ts                 # crawl all active listings using PocketBase
 bun run dev:fresh                    # fresh local run using SQLite (./data/aluga.db)
+bun run sample                       # scrape 3 samples from each of the 5 sites into SQLite
 bun run src/index.ts --page-start=3  # override start page for active listings
 bun run src/index.ts --delete=true   # wipe all records from imoveis_temp
 ```
-
-- The crawler **starts a metrics server on `METRICS_PORT` (default 9100)** immediately on startup.
-  - `/metrics` — Prometheus format, 15s cache.
-  - `/health` — returns `healthy` only if a run started within the last 24h.
 
 ## Scrapers
 
@@ -51,7 +49,7 @@ bun run src/index.ts --delete=true   # wipe all records from imoveis_temp
 - Crawls are **resumable**: `listings.last_page` is updated after each page, so interrupted runs pick up where they left off.
 - Shared engine and extractors:
   - `runScraper()` (`src/pages/base-scraper.ts`) — Puppeteer Stealth pagination, retry, persistence, and progress tracking.
-  - `extractJsonLdListings()` / `parseJsonLdBlocks()` (`src/pages/extractors.ts`) — JSON-LD (`RealEstateListing`) extraction with title-parser fallback and image collection.
+  - `extractJsonLdListings()` / `parseJsonLdBlocks()` (`src/pages/extractors.ts`) — JSON-LD (`RealEstateListing` and `ItemList`) extraction with title-parser fallback and image collection.
   - `extractDomListings()` (`src/pages/extractors.ts`) — data-driven DOM extraction paired with pure site mappers.
 - `SCRAPER_REGISTRY` (`src/pages/index.ts`) dispatches scrapers by `listings.name`.
 

@@ -164,6 +164,21 @@ export interface CrawlerRunFinish {
   errorMsg?: string;
 }
 
+export interface CrawlerLogInsert {
+  level: "debug" | "info" | "warn" | "error";
+  message: string;
+  context?: Record<string, unknown> | null;
+  createdAt?: Date;
+}
+
+export interface CrawlerLogRow {
+  id: string | number;
+  level: string;
+  message: string;
+  context: string | null;
+  createdAt: Date;
+}
+
 export interface DbAdapter {
   ensureSchema(): Promise<void>;
 
@@ -192,4 +207,8 @@ export interface DbAdapter {
   getLatestPerSite(): Promise<CrawlerRunRow[]>;
   countErrorsSince(days: number): Promise<number>;
   countRunsSince(days: number): Promise<number>;
+
+  // crawler_logs
+  insertCrawlerLog(data: CrawlerLogInsert): Promise<void>;
+  getLatestCrawlerLogs(limit: number): Promise<CrawlerLogRow[]>;
 }
