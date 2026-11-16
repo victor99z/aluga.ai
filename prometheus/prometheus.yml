@@ -1,0 +1,15 @@
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+scrape_configs:
+  - job_name: "crawler-pup"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["crawler-pup"]
+
+  - job_name: "crawler-health"
+    scrape_interval: 60s
+    metrics_path: /health
+    static_configs:
+      - targets: ["crawler-pup"]

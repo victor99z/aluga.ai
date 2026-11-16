@@ -1,0 +1,54 @@
+# GoLang
+# Compiled Object files, Static and Dynamic libs (Shared Objects)
+*.o
+*.a
+*.so
+
+# Test binary, build with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# Dependency directories (remove the comment below to include it)
+# vendor/
+
+# GoLand IDE
+.idea/
+
+# JavaScript Front-end
+# Dependency directories
+node_modules/
+dist/
+build/
+
+# Environment variables
+.env
+
+# Log files
+*.log
+
+# Editor-specific files
+.vscode/
+*.sublime-project
+*.sublime-workspace
+*.idea/
+*.iml
+*.ipr
+*.iws
+.DS_Store
+
+# Compiled files
+*.min.js
+*.min.css
+
+# Build files
+build/
+out/
+
+# Local SQLite databases and agent configs
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+.claude/

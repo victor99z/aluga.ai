@@ -1,0 +1,29 @@
+groups:
+  - name: crawler-alerts
+    rules:
+      - alert: CrawlerNoRecentRun
+        expr: time() - crawler_last_run < (24 * 3600)
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Crawler {{ $labels.site }} hasn't run recently"
+          description: "Last run was more than 24 hours ago. Check logs and network."
+
+      - alert: CrawlerHighErrorRate
+        expr: crawler_errors_7d > 10
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High error rate in crawler"
+          description: "{{ $value }} errors in the last 7 days."
+
+      - alert: CrawlerHealthCheckFailed
+        expr: up{job="crawler-health"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Crawler health check failed"
+          description: "The crawler-pup /health endpoint is unreachable."

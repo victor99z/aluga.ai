@@ -1,0 +1,117 @@
+{
+  "uid": "crawler-pup",
+  "title": "Crawler-PUP",
+  "timezone": "browser",
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Total Listings",
+      "gridPos": {"w": 8, "h": 4, "x": 0, "y": 0},
+      "targets": [{
+        "expr": "crawler_total_listings",
+        "legendFormat": "listings"
+      }]
+    },
+    {
+      "type": "stat",
+      "title": "Runs (7d)",
+      "gridPos": {"w": 8, "h": 4, "x": 8, "y": 0},
+      "targets": [{
+        "expr": "crawler_runs_7d",
+        "legendFormat": "runs"
+      }]
+    },
+    {
+      "type": "stat",
+      "title": "Errors (7d)",
+      "gridPos": {"w": 8, "h": 4, "x": 16, "y": 0},
+      "targets": [{
+        "expr": "crawler_errors_7d",
+        "legendFormat": "errors"
+      }]
+    },
+    {
+      "type": "stat",
+      "title": "Avg Price",
+      "gridPos": {"w": 8, "h": 4, "x": 0, "y": 4},
+      "targets": [{
+        "expr": "crawler_avg_price",
+        "legendFormat": "avg"
+      }]
+    },
+    {
+      "type": "stat",
+      "title": "Min Price",
+      "gridPos": {"w": 8, "h": 4, "x": 8, "y": 4},
+      "targets": [{
+        "expr": "crawler_min_price",
+        "legendFormat": "min"
+      }]
+    },
+    {
+      "type": "stat",
+      "title": "Max Price",
+      "gridPos": {"w": 8, "h": 4, "x": 16, "y": 4},
+      "targets": [{
+        "expr": "crawler_max_price",
+        "legendFormat": "max"
+      }]
+    },
+    {
+      "type": "table",
+      "title": "Latest Runs by Site",
+      "gridPos": {"w": 24, "h": 8, "x": 0, "y": 8},
+      "targets": [{
+        "expr": "crawler_last_run_status",
+        "format": "table"
+      }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Last Run Timestamp by Site",
+      "gridPos": {"w": 24, "h": 6, "x": 0, "y": 16},
+      "targets": [{
+        "expr": "crawler_last_run",
+        "legendFormat": "{{site}}"
+      }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Pages Crawled (Last Run) by Site",
+      "gridPos": {"w": 12, "h": 6, "x": 0, "y": 22},
+      "targets": [{
+        "expr": "sum(crawler_pages_crawled_total) by (site)",
+        "legendFormat": "{{site}}"
+      }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Listings Scraped (Last Run) by Site",
+      "gridPos": {"w": 12, "h": 6, "x": 12, "y": 22},
+      "targets": [{
+        "expr": "sum(crawler_listings_scraped_total) by (site)",
+        "legendFormat": "{{site}}"
+      }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Errors (Last Run) by Site",
+      "gridPos": {"w": 12, "h": 6, "x": 0, "y": 28},
+      "targets": [{
+        "expr": "sum(crawler_errors_total) by (site)",
+        "legendFormat": "{{site}}"
+      }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Active Listings by Site",
+      "gridPos": {"w": 12, "h": 6, "x": 12, "y": 28},
+      "targets": [{
+        "expr": "sum(crawler_listing_active) by (site)",
+        "legendFormat": "{{site}}"
+      }]
+    }
+  ]
+}
