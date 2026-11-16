@@ -305,6 +305,27 @@ export class SqliteAdapter implements DbAdapter {
     return n;
   }
 
+  async deleteInvalidOlxImoveis(): Promise<number> {
+    const rows = this.db
+      .prepare(
+        `SELECT id FROM imoveis_temp
+         WHERE ref LIKE '%olx.com.br%'
+           AND (ref LIKE '%/vi/%' OR ref LIKE '%rec=%' OR ref NOT LIKE '%/imoveis/%')`,
+      )
+      .all() as Array<{ id: string }>;
+
+    if (rows.length === 0) return 0;
+
+    const deleteStmt = this.db.prepare("DELETE FROM imoveis_temp WHERE id = ?");
+    this.db.transaction(() => {
+      for (const row of rows) {
+        deleteStmt.run(row.id);
+      }
+    })();
+
+    return rows.length;
+  }
+
   async countImoveis(): Promise<number> {
     return (
       this.db

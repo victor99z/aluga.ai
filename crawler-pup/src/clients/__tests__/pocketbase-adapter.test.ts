@@ -303,6 +303,38 @@ describe("PocketBaseAdapter", () => {
     expect(mock.imoveis.length).toBe(0);
   });
 
+  test("deleteInvalidOlxImoveis removes /vi/ and non-/imoveis/ OLX ads while keeping valid ones", async () => {
+    const mock = createMockPocketBase({
+      imoveis: [
+        {
+          id: "valid-olx",
+          ref: "https://sc.olx.com.br/norte-de-santa-catarina/imoveis/apto-123",
+        },
+        {
+          id: "invalid-vi",
+          ref: "https://www.olx.com.br/vi/1553488450?rec=l&custom_tag=x",
+        },
+        {
+          id: "invalid-rec",
+          ref: "https://sc.olx.com.br/norte-de-santa-catarina/imoveis/casa-123?rec=n",
+        },
+        {
+          id: "invalid-cat",
+          ref: "https://www.olx.com.br/eletronicos/xbox-360-1553510692",
+        },
+        {
+          id: "other-site",
+          ref: "https://www.chavesnamao.com.br/imovel/apartamento-123/",
+        },
+      ],
+    });
+    const adapter = new PocketBaseAdapter({ client: mock.client });
+
+    const deleted = await adapter.deleteInvalidOlxImoveis();
+    expect(deleted).toBe(3);
+    expect(mock.imoveis.map((i) => i.id)).toEqual(["valid-olx", "other-site"]);
+  });
+
   test("getImoveisPrices reads price_aluguel and falls back to features.price_aluguel", async () => {
     const mock = createMockPocketBase({
       imoveis: [

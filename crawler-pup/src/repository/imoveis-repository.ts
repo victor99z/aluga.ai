@@ -185,4 +185,9 @@ export class ImoveisRepository {
     const deleted = await getAdapter().deleteAllImoveis();
     return { deleted };
   }
+
+  static async deleteInvalidOlxInBatch() {
+    const deleted = await getAdapter().deleteInvalidOlxImoveis();
+    return { deleted };
+  }
 }

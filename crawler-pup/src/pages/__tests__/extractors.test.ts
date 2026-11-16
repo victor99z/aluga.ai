@@ -6,7 +6,7 @@ import {
   resolveListingUrl,
 } from "../extractors";
 import { mapImoveisScCard } from "../imoveis-sc";
-import { mapOlxCard } from "../olx-imoveis";
+import { isValidOlxImovelUrl, mapOlxCard } from "../olx-imoveis";
 import { mapVivarealCard } from "../vivareal-imoveis";
 
 describe("extractors utilities", () => {
@@ -185,6 +185,59 @@ describe("DOM card mappers", () => {
     expect(listing?.images).toEqual([
       "https://img.olx.com.br/thumbs700x500/69/693680726108953.webp",
     ]);
+  });
+
+  test("mapOlxCard rejects recommendation/non-imoveis ads and strips tracking query/hash", () => {
+    expect(
+      isValidOlxImovelUrl("https://www.olx.com.br/vi/1553488450?rec=l&custom_tag=x"),
+    ).toBe(false);
+    expect(
+      isValidOlxImovelUrl("https://www.olx.com.br/eletronicos/xbox-series-s-123"),
+    ).toBe(false);
+    expect(
+      isValidOlxImovelUrl("https://notolx.com.br/imoveis/apto-123"),
+    ).toBe(false);
+    expect(
+      isValidOlxImovelUrl("https://sc.olx.com.br/norte-de-santa-catarina/imoveis/apto-123?rec=1"),
+    ).toBe(false);
+    expect(
+      isValidOlxImovelUrl("https://sc.olx.com.br/norte-de-santa-catarina/imoveis/apto-123?utm_source=feed#details"),
+    ).toBe(true);
+
+    expect(
+      mapOlxCard({
+        title: "Xbox Series S + 2 Controles",
+        href: "https://www.olx.com.br/vi/1553488450?rec=l&custom_tag=abc",
+        address: "Palhoça - SC",
+        price: "R$ 1.800",
+        extraPrice: "",
+        image: "https://img.olx.com.br/xbox.webp",
+      }),
+    ).toBeNull();
+
+    expect(
+      mapOlxCard({
+        title: "iPhone 14 Pro Max - 128GB",
+        href: "https://www.olx.com.br/celulares/iphone-14-pro-max-1553510706",
+        address: "João Pessoa - PB",
+        price: "R$ 4.500",
+        extraPrice: "",
+        image: "https://img.olx.com.br/iphone.webp",
+      }),
+    ).toBeNull();
+
+    const validWithParams = mapOlxCard({
+      title: "Apartamento 2 quartos Centro",
+      href: "https://sc.olx.com.br/norte-de-santa-catarina/imoveis/apto-1467581086?utm_source=olx#top",
+      address: "Joinville, Centro",
+      price: "R$ 2.100",
+      extraPrice: "",
+      image: "https://img.olx.com.br/apto.webp",
+    });
+    expect(validWithParams).not.toBeNull();
+    expect(validWithParams?.ref).toBe(
+      "https://sc.olx.com.br/norte-de-santa-catarina/imoveis/apto-1467581086",
+    );
   });
 
   test("mapImoveisScCard resolves relative hrefs and parses title", () => {

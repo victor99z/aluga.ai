@@ -131,6 +131,29 @@ describe("ImoveisRepository (SqliteAdapter :memory:)", () => {
     expect(result.deleted).toBe(2);
   });
 
+  test("deleteInvalidOlxInBatch deletes only invalid OLX listings", async () => {
+    const validOlx =
+      "https://sc.olx.com.br/norte-de-santa-catarina/imoveis/apartamento-123";
+    const invalidVi =
+      "https://www.olx.com.br/vi/1553488450?rec=l&custom_tag=games";
+    const invalidCat =
+      "https://www.olx.com.br/celulares/iphone-14-pro-max-1553510706";
+    const otherSite =
+      "https://www.chavesnamao.com.br/imovel/apartamento-para-alugar/id-123/";
+
+    await ImoveisRepository.create({ ref: validOlx, features: {} });
+    await ImoveisRepository.create({ ref: invalidVi, features: {} });
+    await ImoveisRepository.create({ ref: invalidCat, features: {} });
+    await ImoveisRepository.create({ ref: otherSite, features: {} });
+
+    const result = await ImoveisRepository.deleteInvalidOlxInBatch();
+    expect(result.deleted).toBe(2);
+    expect(await ImoveisRepository.getByRef(validOlx)).toHaveLength(1);
+    expect(await ImoveisRepository.getByRef(otherSite)).toHaveLength(1);
+    expect(await ImoveisRepository.getByRef(invalidVi)).toHaveLength(0);
+    expect(await ImoveisRepository.getByRef(invalidCat)).toHaveLength(0);
+  });
+
   test("getListingById throws for missing listing", async () => {
     expect(ImoveisRepository.getListingById("missing")).rejects.toThrow(
       "Listing not found: missing",

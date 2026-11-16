@@ -191,6 +191,7 @@ export interface DbAdapter {
   patchImovel(id: string, data: ImovelPatch): Promise<void>;
   deleteImovel(id: string): Promise<void>;
   deleteAllImoveis(): Promise<number>;
+  deleteInvalidOlxImoveis(): Promise<number>;
   countImoveis(): Promise<number>;
   getImoveisPrices(): Promise<number[]>;
 

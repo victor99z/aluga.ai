@@ -443,12 +443,9 @@ export class PocketBaseAdapter implements DbAdapter {
     await this.pb.collection(COLLECTIONS.IMOVEIS).delete(id);
   }
 
-  async deleteAllImoveis(): Promise<number> {
-    await this.ensureAuth();
-    const records = await this.pb
-      .collection(COLLECTIONS.IMOVEIS)
-      .getFullList<{ id: string }>({ fields: "id" });
-
+  private async deleteImovelRecordsInBatches(
+    records: Array<{ id: string }>,
+  ): Promise<number> {
     if (records.length === 0) return 0;
 
     for (let i = 0; i < records.length; i += BATCH_CHUNK_SIZE) {
@@ -467,6 +464,39 @@ export class PocketBaseAdapter implements DbAdapter {
     }
 
     return records.length;
+  }
+
+  async deleteAllImoveis(): Promise<number> {
+    await this.ensureAuth();
+    const records = await this.pb
+      .collection(COLLECTIONS.IMOVEIS)
+      .getFullList<{ id: string }>({ fields: "id" });
+
+    return this.deleteImovelRecordsInBatches(records);
+  }
+
+  async deleteInvalidOlxImoveis(): Promise<number> {
+    await this.ensureAuth();
+    const records = await this.pb
+      .collection(COLLECTIONS.IMOVEIS)
+      .getFullList<{ id: string; ref?: string }>({
+        filter:
+          'ref ~ "olx.com.br" && (ref ~ "/vi/" || ref ~ "rec=" || ref !~ "/imoveis/")',
+        fields: "id,ref",
+      });
+
+    const invalid = records.filter((rec) => {
+      const ref = typeof rec.ref === "string" ? rec.ref : "";
+      const lower = ref.toLowerCase();
+      return (
+        lower.includes("olx.com.br") &&
+        (lower.includes("/vi/") ||
+          lower.includes("rec=") ||
+          !/\/imoveis(\/|$)/i.test(ref))
+      );
+    });
+
+    return this.deleteImovelRecordsInBatches(invalid);
   }
 
   async countImoveis(): Promise<number> {

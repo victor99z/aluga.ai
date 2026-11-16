@@ -84,6 +84,7 @@ export async function runScraper(
   let scrapedCounter = 0;
   let errorCounter = 0;
   let consecutiveEmpty = 0;
+  let completedCycle = false;
   const savedSamples: ExtractedListing[] = [];
 
   async function persistProgress() {
@@ -137,6 +138,7 @@ export async function runScraper(
           consecutiveEmpty++;
           if (consecutiveEmpty >= EMPTY_PAGE_THRESHOLD) {
             Logger.info(`Stopping: ${consecutiveEmpty}+ consecutive empty pages`);
+            completedCycle = true;
             break;
           }
         } else {
@@ -171,14 +173,28 @@ export async function runScraper(
       }
 
       await persistProgress();
-      await ImoveisRepository.updateListing(id_listing, {
-        ...listing,
-        lastPage: pageNum,
-      });
+
+      if (maxListings === undefined && pageNum >= maxPages) {
+        completedCycle = true;
+      }
+
+      if (extracted.length > 0 && !completedCycle) {
+        await ImoveisRepository.updateListing(id_listing, {
+          ...listing,
+          lastPage: pageNum,
+        });
+      }
 
       if (maxListings !== undefined && scrapedCounter >= maxListings) {
         break;
       }
+    }
+
+    if (completedCycle) {
+      await ImoveisRepository.updateListing(id_listing, {
+        ...listing,
+        lastPage: 1,
+      });
     }
   } catch (err) {
     Logger.error({ err }, `Unhandled error in ${config.siteName}`);

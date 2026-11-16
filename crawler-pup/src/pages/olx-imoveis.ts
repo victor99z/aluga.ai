@@ -48,12 +48,37 @@ function parseOlxAddress(address: string): {
   };
 }
 
+export function isValidOlxImovelUrl(rawUrl: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return false;
+  }
+
+  const host = url.hostname.toLowerCase();
+  if (host !== "olx.com.br" && !host.endsWith(".olx.com.br")) {
+    return false;
+  }
+
+  if (url.pathname.startsWith("/vi/") || url.searchParams.has("rec")) {
+    return false;
+  }
+
+  return /\/imoveis(\/|$)/i.test(url.pathname);
+}
+
 export function mapOlxCard(
   raw: RawDomCard,
   baseUrl = DEFAULT_URL,
 ): ExtractedListing | null {
-  const ref = resolveListingUrl(raw.href, baseUrl);
-  if (!ref) return null;
+  const resolved = resolveListingUrl(raw.href, baseUrl);
+  if (!resolved || !isValidOlxImovelUrl(resolved)) return null;
+
+  const parsedUrl = new URL(resolved);
+  parsedUrl.search = "";
+  parsedUrl.hash = "";
+  const ref = parsedUrl.toString();
 
   const rent = parseCurrencyToNumber(raw.price);
   const extraPrices = rawIptuAndCondominioToNumbers(raw.extraPrice);

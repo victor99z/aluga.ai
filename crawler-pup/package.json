@@ -8,7 +8,8 @@
     "sample": "rm -f ./data/sample.db && DB_TYPE=sqlite DATABASE_URL=sqlite://./data/sample.db bun run src/index.ts --sample=3 --all-sites --page-start=1",
     "test": "bun test",
     "test:coverage": "bun test --coverage",
-    "dev:fresh": "rm -f ./data/aluga.db && DB_TYPE=sqlite DATABASE_URL=sqlite://./data/aluga.db bun run src/index.ts"
+    "dev:fresh": "rm -f ./data/aluga.db && DB_TYPE=sqlite DATABASE_URL=sqlite://./data/aluga.db bun run src/index.ts",
+    "clean:olx": "bun run src/index.ts --clean-olx"
   },
   "devDependencies": {
     "@types/bun": "latest"

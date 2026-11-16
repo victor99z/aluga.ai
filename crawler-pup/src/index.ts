@@ -8,6 +8,7 @@ import { ImoveisRepository } from "./repository/imoveis-repository";
 interface CliOptions {
   pageStartOverride: number | null;
   shouldDelete: boolean;
+  cleanOlx: boolean;
   sampleLimit: number | null;
   allSites: boolean;
 }
@@ -27,21 +28,22 @@ function parseCliArgs(argv: string[]): CliOptions {
 
   const deleteArg = argv.find((arg) => arg.startsWith("--delete="));
   const shouldDelete = deleteArg ? deleteArg.split("=")[1] === "true" : false;
+  const cleanOlx = argv.includes("--clean-olx");
   const allSites = argv.includes("--all-sites");
 
-  return { pageStartOverride, shouldDelete, sampleLimit, allSites };
+  return { pageStartOverride, shouldDelete, cleanOlx, sampleLimit, allSites };
 }
 
 async function runCrawler(): Promise<void> {
   const args = process.argv.slice(2);
-  const { pageStartOverride, shouldDelete, sampleLimit, allSites } =
+  const { pageStartOverride, shouldDelete, cleanOlx, sampleLimit, allSites } =
     parseCliArgs(args);
 
   await getAdapter().ensureSchema();
   await CrawlerRunsRepository.init();
 
   Logger.info(
-    { args, pageStartOverride, shouldDelete, sampleLimit, allSites },
+    { args, pageStartOverride, shouldDelete, cleanOlx, sampleLimit, allSites },
     "Crawler initialized",
   );
 
@@ -50,6 +52,25 @@ async function runCrawler(): Promise<void> {
     Logger.info(res, "Deleted all listings from imoveis_temp");
     await CrawlerRunsRepository.flushLogs();
     return;
+  }
+
+  if (cleanOlx) {
+    const res = await ImoveisRepository.deleteInvalidOlxInBatch();
+    Logger.info(res, "Deleted invalid OLX listings from imoveis_temp");
+    await CrawlerRunsRepository.flushLogs();
+    return;
+  }
+
+  try {
+    const cleaned = await ImoveisRepository.deleteInvalidOlxInBatch();
+    if (cleaned.deleted > 0) {
+      Logger.info(cleaned, "Cleaned invalid OLX listings from imoveis_temp");
+    }
+  } catch (err) {
+    Logger.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "Failed to clean invalid OLX listings before crawl",
+    );
   }
 
   const listings = await ImoveisRepository.getAllListings();
@@ -64,7 +85,10 @@ async function runCrawler(): Promise<void> {
       continue;
     }
 
-    const startPage = pageStartOverride ?? item.lastPage;
+    const maxPages = item.maxPages ?? 10;
+    const resumedPage =
+      item.lastPage >= 1 && item.lastPage < maxPages ? item.lastPage : 1;
+    const startPage = pageStartOverride ?? resumedPage;
     let runId: { id: number } | null = null;
 
     try {
@@ -75,7 +99,7 @@ async function runCrawler(): Promise<void> {
       );
 
       const stats = await runner(item.id, runId.id, startPage, {
-        maxPages: sampleLimit ? startPage : (item.maxPages ?? 10),
+        maxPages: sampleLimit ? startPage : maxPages,
         maxListings: sampleLimit ?? undefined,
         delayMs: item.delayMs,
         siteUrl: item.url ?? undefined,
