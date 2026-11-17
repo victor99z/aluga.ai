@@ -14,7 +14,9 @@ import {
   filterAndSortImoveis,
   getSavedPocketBaseUrl,
   isInvalidOlxRef,
+  normalizeCityName,
   normalizeImovelRecord,
+  normalizeNeighborhood,
   normalizePropertyType,
   setRuntimeConfigForTest,
   type ImovelItem,
@@ -544,5 +546,53 @@ describe("formatRelativeSeen and onlyRecentlyUpdated filter", () => {
         nowMs,
       ).map((i) => i.id),
     ).toEqual(["today", "fallback-created-recent", "four-days"]);
+  });
+});
+
+describe("normalizeNeighborhood and normalizeCityName", () => {
+  test("strips city names, trailing listing codes, state suffixes, and prefixes from noisy neighborhoods", () => {
+    const knownCities = ["Joinville"];
+
+    expect(normalizeNeighborhood("Bom Retiro", "Joinville", knownCities)).toBe(
+      "Bom Retiro",
+    );
+    expect(
+      normalizeNeighborhood(
+        "Bom Retiro, Joinville - 208",
+        "Joinville",
+        knownCities,
+      ),
+    ).toBe("Bom Retiro");
+    expect(
+      normalizeNeighborhood(
+        "Bom Retiro, Joinville – 69",
+        "",
+        knownCities,
+      ),
+    ).toBe("Bom Retiro");
+    expect(
+      normalizeNeighborhood("Joinville, Bom Retiro", "", knownCities),
+    ).toBe("Bom Retiro");
+    expect(
+      normalizeNeighborhood("Joinville - Bom Retiro", "", knownCities),
+    ).toBe("Bom Retiro");
+    expect(
+      normalizeNeighborhood(
+        "Rua X, 120, Bairro Saguaçú, Joinville - SC",
+        "Joinville - SC",
+        knownCities,
+      ),
+    ).toBe("Saguaçú");
+    expect(normalizeCityName("Joinville - SC")).toBe("Joinville");
+
+    const grouped = buildCanonicalGroups([
+      normalizeNeighborhood("Bom Retiro", "Joinville", knownCities),
+      normalizeNeighborhood("Bom Retiro, Joinville - 208", "Joinville", knownCities),
+      normalizeNeighborhood("Bom Retiro, Joinville – 69", "", knownCities),
+      normalizeNeighborhood("Joinville, Bom Retiro", "", knownCities),
+    ]);
+    expect(grouped).toEqual([
+      { value: "bom retiro", label: "Bom Retiro", count: 4 },
+    ]);
   });
 });

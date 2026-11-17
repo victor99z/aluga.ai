@@ -447,6 +447,7 @@ export function normalizeImovelRecord(
   baseUrl: string,
   listingsById?: Map<string, ListingItem> | Record<string, { name: string }>,
   localPrefs?: LocalImovelPrefsMap,
+  knownCities?: Iterable<string>,
 ): ImovelItem {
   const id = String(record.id ?? "");
   const rawFeatures = parseJsonObject(record.features);
@@ -489,18 +490,24 @@ export function normalizeImovelRecord(
   const bathroom = toNonNegativeNumber(record.bathroom, rawFeatures.bathroom);
   const garage = toNonNegativeNumber(record.garage, rawFeatures.garage);
 
-  const neighborhood = toTrimmedString(
+  const rawNeighborhood = toTrimmedString(
     record.neighborhood,
     rawFeatures.neighborhood,
   );
-  const city = toTrimmedString(record.city, rawFeatures.city);
+  const rawCity = toTrimmedString(record.city, rawFeatures.city);
+  const city = normalizeCityName(rawCity);
+  const neighborhood = normalizeNeighborhood(
+    rawNeighborhood,
+    city,
+    knownCities,
+  );
   const rawPropertyType = toTrimmedString(
     record.property_type,
     rawFeatures.propertyType,
   );
   const address =
     toTrimmedString(rawFeatures.address) ||
-    [neighborhood, city].filter(Boolean).join(", ");
+    [neighborhood || rawNeighborhood, city].filter(Boolean).join(", ");
   let textDescription = toTrimmedString(record.text_description);
   if (textDescription.startsWith("{")) {
     const parsedDesc = parseJsonObject(textDescription);
@@ -554,6 +561,99 @@ export function normalizeLocationKey(value: string): string {
     .normalize("NFD")
     .replace(/\p{Diacritic}/gu, "")
     .toLowerCase();
+}
+
+const STREET_PREFIX_REGEX =
+  /^(?:rua|r\.|av\.?|avenida|servidao|servidão|travessa|estrada|rodovia|alameda|praca|praça|loteamento)\s+/i;
+const STATE_OR_COUNTRY_KEYS = new Set([
+  "sc",
+  "santa catarina",
+  "pr",
+  "parana",
+  "rs",
+  "rio grande do sul",
+  "sp",
+  "sao paulo",
+  "brasil",
+  "brazil",
+]);
+
+export function normalizeCityName(rawCity: string): string {
+  return rawCity
+    .trim()
+    .replace(
+      /\s*(?:,|\s*[-–—/])\s*(?:SC|Santa Catarina|PR|RS|SP|Brasil)\b.*$/i,
+      "",
+    )
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isKnownCitySegment(
+  segmentKey: string,
+  cityKeys: Set<string>,
+): boolean {
+  if (!segmentKey) return false;
+  if (STATE_OR_COUNTRY_KEYS.has(segmentKey)) return true;
+  for (const cityKey of cityKeys) {
+    if (!cityKey) continue;
+    if (
+      segmentKey === cityKey ||
+      segmentKey.startsWith(`${cityKey} `) ||
+      segmentKey.startsWith(`${cityKey}-`) ||
+      segmentKey.startsWith(`${cityKey}/`)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function normalizeNeighborhood(
+  rawNeighborhood: string,
+  city = "",
+  knownCities?: Iterable<string>,
+): string {
+  const cleanedRaw = rawNeighborhood
+    .trim()
+    .replace(/\s+/g, " ")
+    .replace(/\s*[-–—]\s*\d.*$/u, "")
+    .trim();
+  if (!cleanedRaw) return "";
+
+  const cityKeys = new Set<string>();
+  const normalizedCityKey = normalizeLocationKey(normalizeCityName(city));
+  if (normalizedCityKey) cityKeys.add(normalizedCityKey);
+  if (knownCities) {
+    for (const knownCity of knownCities) {
+      const k = normalizeLocationKey(normalizeCityName(knownCity));
+      if (k) cityKeys.add(k);
+    }
+  }
+
+  const rawParts = cleanedRaw
+    .split(/\s*,\s*/)
+    .flatMap((part) => {
+      const subParts = part.split(/\s*(?:\s[-–—]\s|\/)\s*/);
+      return subParts.length > 1 ? subParts : [part];
+    })
+    .map((part) => part.replace(/^bairro\s+/i, "").trim())
+    .filter(Boolean);
+
+  const nonCityParts = rawParts.filter((part) => {
+    if (/^\d+[a-z]?$/i.test(part)) return false;
+    const key = normalizeLocationKey(part);
+    if (!key) return false;
+    return !isKnownCitySegment(key, cityKeys);
+  });
+
+  if (nonCityParts.length === 0) return "";
+
+  const nonStreetParts = nonCityParts.filter(
+    (part) => !STREET_PREFIX_REGEX.test(part),
+  );
+  const chosen = nonStreetParts[0] ?? nonCityParts[0] ?? "";
+  return chosen.replace(/\s*[-–—]\s*\d.*$/u, "").trim();
 }
 
 const PROPERTY_TYPE_RULES: Array<[RegExp, string]> = [
@@ -917,8 +1017,14 @@ export async function fetchDashboardSnapshot(
   const listings = rawListings.map(normalizeListingRecord);
   const listingsById = new Map(listings.map((item) => [item.id, item]));
   const localPrefs = loadLocalImovelPrefs();
+  const knownCities = new Set<string>();
+  for (const rec of rawImoveis) {
+    const rawFeatures = parseJsonObject(rec.features);
+    const city = normalizeCityName(toTrimmedString(rec.city, rawFeatures.city));
+    if (city) knownCities.add(city);
+  }
   const imoveis = rawImoveis.map((rec) =>
-    normalizeImovelRecord(rec, pb.baseURL, listingsById, localPrefs),
+    normalizeImovelRecord(rec, pb.baseURL, listingsById, localPrefs, knownCities),
   );
 
   let runs: CrawlerRunItem[] = [];
