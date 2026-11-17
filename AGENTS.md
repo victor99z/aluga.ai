@@ -4,8 +4,9 @@ High-signal context for sessions in this repo.
 
 ## Repository layout
 
-- **`crawler-pup/`** — Bun + TypeScript crawler application. All dev commands run from here.
-- **Root** — `docker-compose.yaml` for deploying `crawler-pup`.
+- **`crawler-pup/`** — Bun + TypeScript crawler application. All crawler dev commands run from here.
+- **`dashboard/`** — React + Vite + Tailwind web dashboard connected directly to PocketBase (`bun run dev`, `bun run build`, `bun run start`, `bun test`).
+- **Root** — `docker-compose.yaml` for deploying `crawler-pup` and `dashboard`.
 
 ## Runtime
 
