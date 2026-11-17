@@ -4,6 +4,7 @@ import { Check, ChevronDown } from "lucide-react";
 export interface KnollSelectOption {
   value: string | number;
   label: string;
+  count?: number;
 }
 
 interface KnollSelectProps {
@@ -194,10 +195,20 @@ export function KnollSelect({
                       : "text-[#2D2D2D] hover:bg-[#E6E6FA]"
                 }`}
               >
-                <span className="truncate">{opt.label}</span>
-                {isSelected && (
-                  <Check className="h-4 w-4 shrink-0 text-[#2D2D2D]" aria-hidden="true" />
-                )}
+                <span className="min-w-0 flex-1 truncate">{opt.label}</span>
+                <span className="flex shrink-0 items-center gap-1.5">
+                  {typeof opt.count === "number" && (
+                    <span className="font-mono text-xs font-normal text-[#5C5559]">
+                      {opt.count}
+                    </span>
+                  )}
+                  {isSelected && (
+                    <Check
+                      className="h-4 w-4 text-[#2D2D2D]"
+                      aria-hidden="true"
+                    />
+                  )}
+                </span>
               </button>
             );
           })}

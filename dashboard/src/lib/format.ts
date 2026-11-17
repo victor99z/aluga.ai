@@ -21,11 +21,59 @@ export function formatCurrencyBRLDecimal(value: number | null | undefined): stri
   });
 }
 
+export const RECENTLY_UPDATED_DAYS = 5;
+const MS_PER_DAY = 86_400_000;
+
+export function parseTimestampMs(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const normalized = iso
+    .trim()
+    .replace(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})/, "$1T$2");
+  const parsed = Date.parse(normalized);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+export function getDaysSince(
+  iso: string | null | undefined,
+  nowMs = Date.now(),
+): number | null {
+  const parsed = parseTimestampMs(iso);
+  if (parsed === null) return null;
+  return Math.max(0, Math.floor((nowMs - parsed) / MS_PER_DAY));
+}
+
+export interface RelativeSeenInfo {
+  label: string;
+  days: number | null;
+  isStale: boolean;
+}
+
+export function formatRelativeSeen(
+  iso: string | null | undefined,
+  nowMs = Date.now(),
+): RelativeSeenInfo {
+  const days = getDaysSince(iso, nowMs);
+  if (days === null) {
+    return { label: "Sem data", days: null, isStale: false };
+  }
+  if (days === 0) {
+    return { label: "Visto hoje", days: 0, isStale: false };
+  }
+  if (days === 1) {
+    return { label: "Visto ontem", days: 1, isStale: false };
+  }
+  return {
+    label: `Visto há ${days} dias`,
+    days,
+    isStale: days >= RECENTLY_UPDATED_DAYS,
+  };
+}
+
 export function formatDateTimeBR(iso: string | null | undefined): string {
   if (!iso) return "—";
-  const parsed = new Date(iso);
-  if (Number.isNaN(parsed.getTime())) return iso;
-  return parsed.toLocaleString("pt-BR", {
+  const parsed = parseTimestampMs(iso);
+  if (parsed === null) return iso;
+  return new Date(parsed).toLocaleString("pt-BR", {
     day: "2-digit",
     month: "2-digit",
     year: "2-digit",

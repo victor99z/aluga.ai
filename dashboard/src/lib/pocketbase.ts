@@ -1,4 +1,5 @@
 import PocketBase, { ClientResponseError } from "pocketbase";
+import { getDaysSince, RECENTLY_UPDATED_DAYS } from "./format";
 
 export const DEFAULT_POCKETBASE_URL =
   import.meta.env.VITE_POCKETBASE_URL?.trim() || "https://pb.victorbernardes.me";
@@ -131,7 +132,7 @@ export interface ImovelFilters {
   search: string;
   portal: string;
   city: string;
-  neighborhood: string;
+  neighborhoods: string[];
   propertyType: string;
   priceMode: PriceFilterMode;
   minPrice: string;
@@ -142,6 +143,7 @@ export interface ImovelFilters {
   minBathrooms: number;
   minGarage: number;
   onlyWithImages: boolean;
+  onlyRecentlyUpdated: boolean;
   visibilityMode: VisibilityMode;
   sortBy: SortMode;
 }
@@ -150,7 +152,7 @@ export const DEFAULT_FILTERS: ImovelFilters = {
   search: "",
   portal: "",
   city: "",
-  neighborhood: "",
+  neighborhoods: [],
   propertyType: "",
   priceMode: "total",
   minPrice: "",
@@ -161,6 +163,7 @@ export const DEFAULT_FILTERS: ImovelFilters = {
   minBathrooms: 0,
   minGarage: 0,
   onlyWithImages: false,
+  onlyRecentlyUpdated: false,
   visibilityMode: "active",
   sortBy: "newest",
 };
@@ -491,7 +494,7 @@ export function normalizeImovelRecord(
     rawFeatures.neighborhood,
   );
   const city = toTrimmedString(record.city, rawFeatures.city);
-  const propertyType = toTrimmedString(
+  const rawPropertyType = toTrimmedString(
     record.property_type,
     rawFeatures.propertyType,
   );
@@ -509,6 +512,7 @@ export function normalizeImovelRecord(
     textDescription ||
     toTrimmedString(rawFeatures.title) ||
     "Imóvel sem título";
+  const propertyType = normalizePropertyType(rawPropertyType, title, ref);
 
   const localPref = localPrefs?.[id];
   const favorite = localPref?.favorite ?? Boolean(rawFeatures._favorite);
@@ -543,11 +547,152 @@ export function normalizeImovelRecord(
   };
 }
 
-function normalizeSearchText(value: string): string {
+export function normalizeLocationKey(value: string): string {
   return value
+    .trim()
+    .replace(/\s+/g, " ")
     .normalize("NFD")
     .replace(/\p{Diacritic}/gu, "")
     .toLowerCase();
+}
+
+const PROPERTY_TYPE_RULES: Array<[RegExp, string]> = [
+  [/\bcobertura\b/i, "Cobertura"],
+  [/\b(kitnet|kitinete|kitinet|quitinete|mini\s*kitinete)\b/i, "Kitnet"],
+  [/\b(studio|estudio|flat)\b/i, "Studio"],
+  [/\bloft\b/i, "Loft"],
+  [/\b(geminado|germinado)\b/i, "Geminado"],
+  [/\b(sobrado|duplex|triplex)\b/i, "Sobrado"],
+  [/\b(apartamento|apartamentos|apto|ap)\b/i, "Apartamento"],
+  [/\b(casa|casas|residencia|residencial)\b/i, "Casa"],
+  [/\b(quarto|quartos|suite|suites|republica)\b/i, "Quarto"],
+  [/\b(galpao|barracao|deposito|armazem|pavilhao)\b/i, "Galpão"],
+  [
+    /\b(sala\s+comercial|salas\s+comerciais|loja|salao|ponto\s+comercial|conjunto\s+comercial|predio\s+comercial|imovel\s+comercial|escritorio|consultorio|clinica|sala)\b/i,
+    "Comercial",
+  ],
+  [/\b(terreno|lote|area\s+industrial|area\s+comercial)\b/i, "Terreno"],
+  [/\b(chacara|sitio|fazenda|rancho)\b/i, "Chácara / Sítio"],
+  [/\b(pousada|chale)\b/i, "Pousada / Chalé"],
+];
+
+export function normalizePropertyType(
+  rawType: string,
+  title = "",
+  ref = "",
+): string {
+  const candidates = [rawType, title, ref.replace(/[-/_]+/g, " ")];
+  for (const candidate of candidates) {
+    const normalized = normalizeLocationKey(candidate);
+    if (!normalized) continue;
+    for (const [pattern, label] of PROPERTY_TYPE_RULES) {
+      if (pattern.test(normalized)) {
+        return label;
+      }
+    }
+  }
+  return "";
+}
+
+const PT_LOWER_WORDS = new Set([
+  "da",
+  "de",
+  "do",
+  "das",
+  "dos",
+  "e",
+  "em",
+  "no",
+  "na",
+]);
+
+function isWellCapitalized(text: string): boolean {
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return false;
+  return words.every((word, idx) => {
+    const lower = word.toLowerCase();
+    if (idx > 0 && PT_LOWER_WORDS.has(lower)) {
+      return word === lower;
+    }
+    return (
+      word[0] === word[0]?.toUpperCase() &&
+      word.slice(1) === word.slice(1).toLowerCase()
+    );
+  });
+}
+
+function toTitleCasePt(text: string): string {
+  return text
+    .trim()
+    .split(/\s+/)
+    .map((word, idx) => {
+      const lower = word.toLowerCase();
+      if (idx > 0 && PT_LOWER_WORDS.has(lower)) return lower;
+      return lower.charAt(0).toUpperCase() + lower.slice(1);
+    })
+    .join(" ");
+}
+
+export interface CanonicalGroupOption {
+  value: string;
+  label: string;
+  count: number;
+}
+
+export function buildCanonicalGroups(values: string[]): CanonicalGroupOption[] {
+  const groups = new Map<
+    string,
+    { total: number; variants: Map<string, number> }
+  >();
+
+  for (const raw of values) {
+    const cleaned = raw.trim().replace(/\s+/g, " ");
+    if (!cleaned) continue;
+    const key = normalizeLocationKey(cleaned);
+    if (!key) continue;
+
+    let group = groups.get(key);
+    if (!group) {
+      group = { total: 0, variants: new Map() };
+      groups.set(key, group);
+    }
+    group.total++;
+    group.variants.set(cleaned, (group.variants.get(cleaned) ?? 0) + 1);
+  }
+
+  const result: CanonicalGroupOption[] = [];
+
+  for (const [key, group] of groups.entries()) {
+    let bestLabel = "";
+    let bestScore = -1;
+
+    for (const [variant, count] of group.variants.entries()) {
+      const hasAccents = /\p{Diacritic}/u.test(variant.normalize("NFD"));
+      const score =
+        (hasAccents ? 1000 : 0) +
+        (isWellCapitalized(variant) ? 500 : 0) +
+        count;
+      if (score > bestScore) {
+        bestScore = score;
+        bestLabel = variant;
+      }
+    }
+
+    if (
+      bestLabel === bestLabel.toLowerCase() ||
+      bestLabel === bestLabel.toUpperCase()
+    ) {
+      bestLabel = toTitleCasePt(bestLabel);
+    }
+
+    result.push({ value: key, label: bestLabel, count: group.total });
+  }
+
+  return result.sort((a, b) => a.label.localeCompare(b.label, "pt-BR"));
+}
+
+function normalizeSearchText(value: string): string {
+  return normalizeLocationKey(value);
 }
 
 function parseOptionalFilterNum(value: string): number | null {
@@ -560,8 +705,18 @@ function parseOptionalFilterNum(value: string): number | null {
 export function filterAndSortImoveis(
   items: ImovelItem[],
   filters: ImovelFilters,
+  nowMs = Date.now(),
 ): ImovelItem[] {
   const searchTerm = normalizeSearchText(filters.search.trim());
+  const selectedCityKey = filters.city
+    ? normalizeLocationKey(filters.city)
+    : "";
+  const selectedNeighborhoodKeys = new Set(
+    filters.neighborhoods.map(normalizeLocationKey).filter(Boolean),
+  );
+  const selectedTypeKey = filters.propertyType
+    ? normalizeLocationKey(filters.propertyType)
+    : "";
   const minPrice = parseOptionalFilterNum(filters.minPrice);
   const maxPrice = parseOptionalFilterNum(filters.maxPrice);
   const minArea = parseOptionalFilterNum(filters.minArea);
@@ -575,15 +730,30 @@ export function filterAndSortImoveis(
     if (filters.visibilityMode === "hidden" && !item.hidden) return false;
 
     if (filters.portal && item.portalName !== filters.portal) return false;
-    if (filters.city && item.city !== filters.city) return false;
-    if (filters.neighborhood && item.neighborhood !== filters.neighborhood) {
+    if (
+      selectedCityKey &&
+      normalizeLocationKey(item.city) !== selectedCityKey
+    ) {
       return false;
     }
-    if (filters.propertyType && item.propertyType !== filters.propertyType) {
+    if (
+      selectedNeighborhoodKeys.size > 0 &&
+      !selectedNeighborhoodKeys.has(normalizeLocationKey(item.neighborhood))
+    ) {
+      return false;
+    }
+    if (
+      selectedTypeKey &&
+      normalizeLocationKey(item.propertyType) !== selectedTypeKey
+    ) {
       return false;
     }
 
     if (filters.onlyWithImages && item.images.length === 0) return false;
+    if (filters.onlyRecentlyUpdated) {
+      const days = getDaysSince(item.updated || item.created, nowMs);
+      if (days === null || days >= RECENTLY_UPDATED_DAYS) return false;
+    }
     if (filters.minBedrooms > 0 && item.bedroom < filters.minBedrooms) return false;
     if (filters.minBathrooms > 0 && item.bathroom < filters.minBathrooms) return false;
     if (filters.minGarage > 0 && item.garage < filters.minGarage) return false;

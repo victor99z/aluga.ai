@@ -7,6 +7,7 @@ import {
   Car,
   ChevronLeft,
   ChevronRight,
+  Clock,
   ExternalLink,
   Eye,
   EyeOff,
@@ -20,22 +21,28 @@ import {
   Sparkles,
   Table2,
   Trash2,
+  X,
 } from "lucide-react";
 import {
   computeMedian,
   formatCurrencyBRL,
   formatCurrencyBRLDecimal,
   formatPortalLabel,
+  formatRelativeSeen,
+  RECENTLY_UPDATED_DAYS,
 } from "../lib/format";
 import {
+  buildCanonicalGroups,
   DEFAULT_FILTERS,
   filterAndSortImoveis,
   isInvalidOlxRef,
+  normalizeLocationKey,
   type ImovelFilters,
   type ImovelItem,
   type SortMode,
   type VisibilityMode,
 } from "../lib/pocketbase";
+import { KnollMultiSelect } from "./KnollMultiSelect";
 import { KnollSelect } from "./KnollSelect";
 
 interface CatalogSectionProps {
@@ -74,6 +81,7 @@ function ImovelCard({
       ? Math.min(imgIdx, availableImages.length - 1)
       : 0;
   const currentImg = availableImages[safeIdx];
+  const seen = formatRelativeSeen(item.updated || item.created);
 
   return (
     <article className="knoll-card knoll-card-interactive group flex flex-col overflow-hidden">
@@ -247,73 +255,93 @@ function ImovelCard({
           {item.title}
         </h3>
 
-        <p className="flex items-center gap-1.5 text-xs text-[#5C5559]">
-          <MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-          <span className="truncate">
-            {item.address ||
-              [item.neighborhood, item.city].filter(Boolean).join(", ") ||
-              "Localização não informada"}
-          </span>
-        </p>
+        <div className="mt-auto flex flex-col gap-2.5 pt-1">
+          <p className="flex items-center gap-1.5 text-xs text-[#5C5559]">
+            <MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <span className="truncate">
+              {item.address ||
+                [item.neighborhood, item.city].filter(Boolean).join(", ") ||
+                "Localização não informada"}
+            </span>
+          </p>
 
-        <div className="grid grid-cols-4 divide-x divide-[#00000020] rounded-lg border border-[#00000020] text-center font-mono text-xs text-[#2D2D2D]">
-          <div className="flex items-center justify-center gap-1 py-1.5" title="Área útil">
-            <Maximize2 className="h-3 w-3 text-[#5C5559]" aria-hidden="true" />
-            <span>{item.areaM2 > 0 ? `${item.areaM2}m²` : "—"}</span>
+          <div className="grid grid-cols-4 divide-x divide-[#00000020] rounded-lg border border-[#00000020] text-center font-mono text-xs text-[#2D2D2D]">
+            <div className="flex items-center justify-center gap-1 py-1.5" title="Área útil">
+              <Maximize2 className="h-3 w-3 text-[#5C5559]" aria-hidden="true" />
+              <span>{item.areaM2 > 0 ? `${item.areaM2}m²` : "—"}</span>
+            </div>
+            <div className="flex items-center justify-center gap-1 py-1.5" title="Quartos">
+              <BedDouble className="h-3 w-3 text-[#5C5559]" aria-hidden="true" />
+              <span>{item.bedroom > 0 ? item.bedroom : "—"}</span>
+            </div>
+            <div className="flex items-center justify-center gap-1 py-1.5" title="Banheiros">
+              <Bath className="h-3 w-3 text-[#5C5559]" aria-hidden="true" />
+              <span>{item.bathroom > 0 ? item.bathroom : "—"}</span>
+            </div>
+            <div className="flex items-center justify-center gap-1 py-1.5" title="Vagas">
+              <Car className="h-3 w-3 text-[#5C5559]" aria-hidden="true" />
+              <span>{item.garage > 0 ? item.garage : "—"}</span>
+            </div>
           </div>
-          <div className="flex items-center justify-center gap-1 py-1.5" title="Quartos">
-            <BedDouble className="h-3 w-3 text-[#5C5559]" aria-hidden="true" />
-            <span>{item.bedroom > 0 ? item.bedroom : "—"}</span>
-          </div>
-          <div className="flex items-center justify-center gap-1 py-1.5" title="Banheiros">
-            <Bath className="h-3 w-3 text-[#5C5559]" aria-hidden="true" />
-            <span>{item.bathroom > 0 ? item.bathroom : "—"}</span>
-          </div>
-          <div className="flex items-center justify-center gap-1 py-1.5" title="Vagas">
-            <Car className="h-3 w-3 text-[#5C5559]" aria-hidden="true" />
-            <span>{item.garage > 0 ? item.garage : "—"}</span>
-          </div>
-        </div>
 
-        <div className="mt-auto flex items-center justify-between gap-2 pt-1">
-          <button
-            type="button"
-            onClick={() => onSelect(item)}
-            className="knoll-btn-primary flex-1 !py-2 text-xs"
-          >
-            Ver detalhes
-          </button>
-
-          {item.ref && (
-            <a
-              href={item.ref}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="Abrir anúncio original em nova aba"
-              className="knoll-btn-secondary !p-2 text-[#2D2D2D]"
+          {seen.isStale ? (
+            <div
+              className="flex items-center gap-1.5 rounded-lg border border-[#9F2D3B]/25 bg-[#FADCE0]/70 px-2.5 py-1 text-xs font-medium text-[#9F2D3B]"
+              title="Sem atualização recente pelo robô — o anúncio pode não estar mais disponível"
             >
-              <ExternalLink className="h-4 w-4" aria-hidden="true" />
-            </a>
-          )}
-
-          {confirmDelete ? (
-            <button
-              type="button"
-              onClick={() => void onDelete(item)}
-              className="rounded-xl border border-[#9F2D3B]/30 bg-[#FADCE0] px-2.5 py-2 text-xs font-bold text-[#9F2D3B] transition hover:bg-[#F5C5CC]"
-            >
-              Excluir
-            </button>
+              <AlertTriangle
+                className="h-3.5 w-3.5 shrink-0"
+                aria-hidden="true"
+              />
+              <span className="truncate">{seen.label} (possível inativo)</span>
+            </div>
           ) : (
+            <div className="flex items-center gap-1.5 border border-transparent py-1 text-xs text-[#5C5559]">
+              <Clock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              <span className="truncate">{seen.label}</span>
+            </div>
+          )}
+
+          <div className="flex items-center justify-between gap-2 pt-0.5">
             <button
               type="button"
-              onClick={() => setConfirmDelete(true)}
-              aria-label="Excluir anúncio"
-              className="knoll-btn-secondary !p-2 text-[#5C5559] hover:!bg-[#FADCE0] hover:text-[#9F2D3B]"
+              onClick={() => onSelect(item)}
+              className="knoll-btn-primary flex-1 !py-2 text-xs"
             >
-              <Trash2 className="h-4 w-4" aria-hidden="true" />
+              Ver detalhes
             </button>
-          )}
+
+            {item.ref && (
+              <a
+                href={item.ref}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Abrir anúncio original em nova aba"
+                className="knoll-btn-secondary !p-2 text-[#2D2D2D]"
+              >
+                <ExternalLink className="h-4 w-4" aria-hidden="true" />
+              </a>
+            )}
+
+            {confirmDelete ? (
+              <button
+                type="button"
+                onClick={() => void onDelete(item)}
+                className="rounded-xl border border-[#9F2D3B]/30 bg-[#FADCE0] px-2.5 py-2 text-xs font-bold text-[#9F2D3B] transition hover:bg-[#F5C5CC]"
+              >
+                Excluir
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(true)}
+                aria-label="Excluir anúncio"
+                className="knoll-btn-secondary !p-2 text-[#5C5559] hover:!bg-[#FADCE0] hover:text-[#9F2D3B]"
+              >
+                <Trash2 className="h-4 w-4" aria-hidden="true" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </article>
@@ -341,31 +369,37 @@ export function CatalogSection({
 
   const filterOptions = useMemo(() => {
     const portals = new Set<string>();
-    const cities = new Set<string>();
-    const neighborhoods = new Set<string>();
-    const propertyTypes = new Set<string>();
+    const rawCities: string[] = [];
+    const rawNeighborhoods: string[] = [];
+    const rawPropertyTypes: string[] = [];
+    const selectedCityKey = filters.city
+      ? normalizeLocationKey(filters.city)
+      : "";
 
     for (const item of items) {
       if (item.portalName) portals.add(item.portalName);
-      if (item.city) cities.add(item.city);
+      if (item.city) rawCities.push(item.city);
       if (
         item.neighborhood &&
-        (!filters.city || item.city === filters.city)
+        (!selectedCityKey ||
+          normalizeLocationKey(item.city) === selectedCityKey)
       ) {
-        neighborhoods.add(item.neighborhood);
+        rawNeighborhoods.push(item.neighborhood);
       }
-      if (item.propertyType) propertyTypes.add(item.propertyType);
+      if (item.propertyType) rawPropertyTypes.push(item.propertyType);
     }
+
+    const neighborhoods = buildCanonicalGroups(rawNeighborhoods);
+    const neighborhoodLabelMap = new Map(
+      neighborhoods.map((n) => [n.value, n.label]),
+    );
 
     return {
       portals: [...portals].sort(),
-      cities: [...cities].sort((a, b) => a.localeCompare(b, "pt-BR")),
-      neighborhoods: [...neighborhoods].sort((a, b) =>
-        a.localeCompare(b, "pt-BR"),
-      ),
-      propertyTypes: [...propertyTypes].sort((a, b) =>
-        a.localeCompare(b, "pt-BR"),
-      ),
+      cities: buildCanonicalGroups(rawCities),
+      neighborhoods,
+      neighborhoodLabelMap,
+      propertyTypes: buildCanonicalGroups(rawPropertyTypes),
     };
   }, [items, filters.city]);
 
@@ -431,7 +465,7 @@ export function CatalogSection({
     setFilters((prev) => ({
       ...prev,
       [key]: value,
-      ...(key === "city" ? { neighborhood: "" } : {}),
+      ...(key === "city" ? { neighborhoods: [] } : {}),
     }));
   }
 
@@ -581,22 +615,18 @@ export function CatalogSection({
               onChange={(val) => updateFilter("city", val)}
               options={[
                 { value: "", label: "Todas as cidades" },
-                ...filterOptions.cities.map((c) => ({ value: c, label: c })),
+                ...filterOptions.cities,
               ]}
             />
 
-            <KnollSelect
+            <KnollMultiSelect
               id="filter-neighborhood"
-              label="Bairro"
-              value={filters.neighborhood}
-              onChange={(val) => updateFilter("neighborhood", val)}
-              options={[
-                { value: "", label: "Todos os bairros" },
-                ...filterOptions.neighborhoods.map((n) => ({
-                  value: n,
-                  label: n,
-                })),
-              ]}
+              label="Bairros"
+              values={filters.neighborhoods}
+              onChange={(vals) => updateFilter("neighborhoods", vals)}
+              placeholder="Todos os bairros"
+              searchPlaceholder="Buscar bairro..."
+              options={filterOptions.neighborhoods}
             />
 
             <KnollSelect
@@ -606,10 +636,7 @@ export function CatalogSection({
               onChange={(val) => updateFilter("propertyType", val)}
               options={[
                 { value: "", label: "Todos os tipos" },
-                ...filterOptions.propertyTypes.map((t) => ({
-                  value: t,
-                  label: t,
-                })),
+                ...filterOptions.propertyTypes,
               ]}
             />
 
@@ -745,6 +772,32 @@ export function CatalogSection({
             />
           </div>
 
+          {filters.neighborhoods.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 border-t border-[#00000020] pt-3">
+              <span className="mr-1 text-xs font-bold text-[#5C5559]">
+                Bairros selecionados:
+              </span>
+              {filters.neighborhoods.map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() =>
+                    updateFilter(
+                      "neighborhoods",
+                      filters.neighborhoods.filter((item) => item !== n),
+                    )
+                  }
+                  className="inline-flex items-center gap-1 rounded-lg border border-[#00000020] bg-[#CBE4F0] px-2.5 py-1 text-xs font-bold text-[#2D2D2D] transition hover:bg-[#B6D7E7]"
+                >
+                  <span>
+                    {filterOptions.neighborhoodLabelMap.get(n) ?? n}
+                  </span>
+                  <X className="h-3 w-3" aria-hidden="true" />
+                </button>
+              ))}
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#00000020] pt-3">
             <div className="flex flex-wrap items-center gap-4">
               <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-[#2D2D2D]">
@@ -757,6 +810,21 @@ export function CatalogSection({
                   className="h-4 w-4 rounded border-[#00000020] accent-[#2D2D2D]"
                 />
                 Apenas imóveis com fotos
+              </label>
+
+              <label
+                className="inline-flex cursor-pointer items-center gap-2 text-sm text-[#2D2D2D]"
+                title={`Exibe apenas anúncios atualizados nos últimos ${RECENTLY_UPDATED_DAYS} dias`}
+              >
+                <input
+                  type="checkbox"
+                  checked={filters.onlyRecentlyUpdated}
+                  onChange={(e) =>
+                    updateFilter("onlyRecentlyUpdated", e.target.checked)
+                  }
+                  className="h-4 w-4 rounded border-[#00000020] accent-[#2D2D2D]"
+                />
+                Atualizados recentemente
               </label>
 
               <button
@@ -877,7 +945,9 @@ export function CatalogSection({
               </tr>
             </thead>
             <tbody className="divide-y divide-[#00000020]/50">
-              {pagedItems.map((item) => (
+              {pagedItems.map((item) => {
+                const seen = formatRelativeSeen(item.updated || item.created);
+                return (
                 <tr key={item.id} className="hover:bg-[#E6E6FA]/35">
                   <th
                     scope="row"
@@ -890,6 +960,31 @@ export function CatalogSection({
                     >
                       {item.title}
                     </button>
+                    {seen.days !== null && (
+                      <div
+                        className={`mt-1 inline-flex items-center gap-1 font-normal text-xs ${
+                          seen.isStale
+                            ? "text-[#9F2D3B]"
+                            : "text-[#5C5559]"
+                        }`}
+                      >
+                        {seen.isStale ? (
+                          <AlertTriangle
+                            className="h-3 w-3 shrink-0"
+                            aria-hidden="true"
+                          />
+                        ) : (
+                          <Clock
+                            className="h-3 w-3 shrink-0"
+                            aria-hidden="true"
+                          />
+                        )}
+                        <span>
+                          {seen.label}
+                          {seen.isStale ? " (possível inativo)" : ""}
+                        </span>
+                      </div>
+                    )}
                   </th>
                   <td className="px-4 py-3 whitespace-nowrap">
                     <span className="rounded-md border border-[#00000020] bg-[#CBE4F0] px-2 py-0.5 text-xs font-bold">
@@ -941,7 +1036,8 @@ export function CatalogSection({
                     </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

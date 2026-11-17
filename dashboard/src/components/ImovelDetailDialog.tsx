@@ -1,10 +1,12 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
+  AlertTriangle,
   Bath,
   BedDouble,
   Car,
   ChevronLeft,
   ChevronRight,
+  Clock,
   ExternalLink,
   EyeOff,
   Heart,
@@ -19,6 +21,7 @@ import {
   formatCurrencyBRLDecimal,
   formatDateTimeBR,
   formatPortalLabel,
+  formatRelativeSeen,
 } from "../lib/format";
 import type { ImovelItem } from "../lib/pocketbase";
 
@@ -122,6 +125,7 @@ export function ImovelDetailDialog({
       ? Math.min(activeImageIdx, availableImages.length - 1)
       : 0;
   const activeImage = availableImages[safeImageIdx] ?? null;
+  const seen = item ? formatRelativeSeen(item.updated || item.created) : null;
 
   async function handleConfirmDelete() {
     if (!item) return;
@@ -174,7 +178,7 @@ export function ImovelDetailDialog({
             </button>
           </header>
 
-          <div className="grid gap-6 overflow-y-auto p-5 lg:grid-cols-[1.2fr_1fr]">
+          <div className="knoll-scroll grid gap-6 overflow-y-auto p-5 lg:grid-cols-[1.2fr_1fr]">
             <div className="space-y-3">
               <div className="relative aspect-[4/3] overflow-hidden rounded-xl border border-[#00000020] bg-[#E6E6FA]/40">
                 {activeImage ? (
@@ -350,76 +354,133 @@ export function ImovelDetailDialog({
                 </div>
               </div>
 
-              <div className="space-y-2 rounded-xl border border-[#00000020] bg-[#FFFDFD] p-4 text-sm">
-                <div className="flex items-start gap-2 text-[#2D2D2D]">
-                  <MapPin
-                    className="mt-0.5 h-4 w-4 shrink-0 text-[#5C5559]"
-                    aria-hidden="true"
-                  />
-                  <span>
-                    {item.address ||
-                      [item.neighborhood, item.city]
-                        .filter(Boolean)
-                        .join(", ") ||
-                      "Endereço não informado"}
-                  </span>
+              <div className="space-y-3 rounded-xl border border-[#00000020] bg-[#FFFDFD] p-4 text-sm">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="flex min-w-0 items-start gap-2 text-[#2D2D2D]">
+                    <MapPin
+                      className="mt-0.5 h-4 w-4 shrink-0 text-[#5C5559]"
+                      aria-hidden="true"
+                    />
+                    <span className="font-medium">
+                      {item.address ||
+                        [item.neighborhood, item.city]
+                          .filter(Boolean)
+                          .join(", ") ||
+                        "Endereço não informado"}
+                    </span>
+                  </div>
+
+                  {seen && seen.days !== null && (
+                    <span
+                      className={`inline-flex shrink-0 items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium ${
+                        seen.isStale
+                          ? "border-[#9F2D3B]/30 bg-[#FADCE0]/80 text-[#9F2D3B]"
+                          : "border-[#00000020] bg-[#E6E6FA]/55 text-[#2D2D2D]"
+                      }`}
+                    >
+                      {seen.isStale ? (
+                        <AlertTriangle
+                          className="h-3 w-3 shrink-0"
+                          aria-hidden="true"
+                        />
+                      ) : (
+                        <Clock
+                          className="h-3 w-3 shrink-0 text-[#5C5559]"
+                          aria-hidden="true"
+                        />
+                      )}
+                      {seen.label}
+                    </span>
+                  )}
                 </div>
-                <div className="grid grid-cols-2 gap-2 border-t border-[#00000020] pt-2 font-mono text-xs text-[#5C5559]">
+
+                <dl className="grid grid-cols-2 gap-4 border-t border-[#00000020] pt-3 text-xs">
                   <div>
-                    <span className="block text-[11px]">Criado em</span>
-                    {formatDateTimeBR(item.created)}
+                    <dt className="text-[11px] text-[#5C5559]">Criado em</dt>
+                    <dd className="mt-0.5 font-mono font-medium text-[#2D2D2D]">
+                      {formatDateTimeBR(item.created)}
+                    </dd>
                   </div>
                   <div>
-                    <span className="block text-[11px]">Atualizado em</span>
-                    {formatDateTimeBR(item.updated)}
+                    <dt className="text-[11px] text-[#5C5559]">Atualizado em</dt>
+                    <dd className="mt-0.5 font-mono font-medium text-[#2D2D2D]">
+                      {formatDateTimeBR(item.updated)}
+                    </dd>
                   </div>
-                </div>
+                </dl>
+
+                {seen?.isStale && (
+                  <div className="flex items-start gap-2 rounded-lg border border-[#9F2D3B]/25 bg-[#FADCE0]/70 px-3 py-2 text-xs text-[#9F2D3B]">
+                    <AlertTriangle
+                      className="mt-0.5 h-4 w-4 shrink-0"
+                      aria-hidden="true"
+                    />
+                    <span>
+                      Não visto pelo robô há {seen.days} dias — este anúncio pode
+                      ter sido alugado ou removido.
+                    </span>
+                  </div>
+                )}
               </div>
 
-              <div className="flex flex-wrap gap-2">
+              <div className="space-y-2">
                 {item.ref && (
                   <a
                     href={item.ref}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="knoll-btn-primary inline-flex flex-1 items-center justify-center gap-2 text-sm"
+                    className="knoll-btn-primary flex w-full items-center justify-center gap-2 whitespace-nowrap text-sm"
                   >
-                    <ExternalLink className="h-4 w-4" aria-hidden="true" />
+                    <ExternalLink className="h-4 w-4 shrink-0" aria-hidden="true" />
                     Abrir anúncio original
                   </a>
                 )}
 
-                <button
-                  type="button"
-                  onClick={() => onToggleFavorite(item)}
-                  className={`knoll-btn-secondary inline-flex items-center gap-1.5 text-sm ${
-                    item.favorite ? "!bg-[#F6D0D6] !text-[#9F2D3B]" : ""
-                  }`}
-                >
-                  <Heart
-                    className={`h-4 w-4 ${item.favorite ? "fill-current" : ""}`}
-                    aria-hidden="true"
-                  />
-                  {item.favorite ? "Favorito" : "Favoritar"}
-                </button>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onToggleFavorite(item)}
+                    className={`knoll-btn-secondary inline-flex items-center justify-center gap-1.5 whitespace-nowrap !px-2.5 text-sm ${
+                      item.favorite ? "!bg-[#F6D0D6] !text-[#9F2D3B]" : ""
+                    }`}
+                  >
+                    <Heart
+                      className={`h-4 w-4 shrink-0 ${item.favorite ? "fill-current" : ""}`}
+                      aria-hidden="true"
+                    />
+                    {item.favorite ? "Favorito" : "Favoritar"}
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={() => onToggleHidden(item)}
-                  className={`knoll-btn-secondary inline-flex items-center gap-1.5 text-sm ${
-                    item.hidden ? "!bg-[#E6E6FA]" : ""
-                  }`}
-                >
-                  <EyeOff className="h-4 w-4" aria-hidden="true" />
-                  {item.hidden ? "Reexibir" : "Ocultar"}
-                </button>
-              </div>
+                  <button
+                    type="button"
+                    onClick={() => onToggleHidden(item)}
+                    className={`knoll-btn-secondary inline-flex items-center justify-center gap-1.5 whitespace-nowrap !px-2.5 text-sm ${
+                      item.hidden ? "!bg-[#E6E6FA]" : ""
+                    }`}
+                  >
+                    <EyeOff className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    {item.hidden ? "Reexibir" : "Ocultar"}
+                  </button>
 
-              <div className="border-t border-[#00000020] pt-3">
-                {confirmingDelete ? (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingDelete((prev) => !prev)}
+                    aria-expanded={confirmingDelete}
+                    className={`knoll-btn-secondary inline-flex items-center justify-center gap-1.5 whitespace-nowrap !px-2.5 text-sm ${
+                      confirmingDelete
+                        ? "!border-[#9F2D3B]/40 !bg-[#FADCE0] !text-[#9F2D3B]"
+                        : "!text-[#9F2D3B] hover:!bg-[#FADCE0]/60"
+                    }`}
+                  >
+                    <Trash2 className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    Excluir
+                  </button>
+                </div>
+
+                {confirmingDelete && (
                   <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#9F2D3B]/30 bg-[#FADCE0] p-3 text-xs">
-                    <span className="text-[#9F2D3B]">
-                      Excluir este registro do PocketBase permanentemente?
+                    <span className="font-medium text-[#9F2D3B]">
+                      Excluir este anúncio permanentemente?
                     </span>
                     <div className="flex gap-2">
                       <button
@@ -435,19 +496,10 @@ export function ImovelDetailDialog({
                         onClick={handleConfirmDelete}
                         className="rounded-lg bg-[#9F2D3B] px-2.5 py-1 font-semibold text-white hover:opacity-90 disabled:opacity-60"
                       >
-                        {deleting ? "Excluindo..." : "Excluir anúncio"}
+                        {deleting ? "Excluindo..." : "Confirmar"}
                       </button>
                     </div>
                   </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setConfirmingDelete(true)}
-                    className="inline-flex items-center gap-1.5 text-xs font-medium text-[#9F2D3B] hover:underline"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-                    Excluir anúncio
-                  </button>
                 )}
               </div>
             </div>

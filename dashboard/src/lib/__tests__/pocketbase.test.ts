@@ -1,7 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import type PocketBase from "pocketbase";
 import {
+  formatRelativeSeen,
+  getDaysSince,
+  RECENTLY_UPDATED_DAYS,
+} from "../format";
+import {
   authenticateWithPocketBase,
+  buildCanonicalGroups,
   DEFAULT_FILTERS,
   DEFAULT_POCKETBASE_URL,
   deleteImovelRecords,
@@ -9,6 +15,7 @@ import {
   getSavedPocketBaseUrl,
   isInvalidOlxRef,
   normalizeImovelRecord,
+  normalizePropertyType,
   setRuntimeConfigForTest,
   type ImovelItem,
 } from "../pocketbase";
@@ -242,6 +249,20 @@ describe("filterAndSortImoveis", () => {
         minBedrooms: 3,
       }).map((i) => i.id),
     ).toEqual(["2"]);
+
+    expect(
+      filterAndSortImoveis(sample, {
+        ...DEFAULT_FILTERS,
+        neighborhoods: ["Saguaçu", "Costa e Silva"],
+      }).map((i) => i.id),
+    ).toEqual(["1", "2"]);
+
+    expect(
+      filterAndSortImoveis(sample, {
+        ...DEFAULT_FILTERS,
+        neighborhoods: ["saguacu"],
+      }).map((i) => i.id),
+    ).toEqual(["1"]);
   });
 
   test("sorts by price_asc, area_desc, and price_per_m2_asc", () => {
@@ -397,5 +418,131 @@ describe("getSavedPocketBaseUrl", () => {
 
     setRuntimeConfigForTest({ pocketbaseUrl: "", localSampleMode: false });
     expect(getSavedPocketBaseUrl()).toBe(DEFAULT_POCKETBASE_URL);
+  });
+});
+
+describe("buildCanonicalGroups", () => {
+  test("groups neighborhood variants differing by case, spacing, or accents", () => {
+    const groups = buildCanonicalGroups([
+      "Boa vista",
+      "Boa Vista",
+      "bom retiro",
+      "Bom Retiro",
+      "America",
+      "América",
+      "costa  e silva",
+      "Costa e Silva",
+    ]);
+
+    expect(groups).toEqual([
+      { value: "america", label: "América", count: 2 },
+      { value: "boa vista", label: "Boa Vista", count: 2 },
+      { value: "bom retiro", label: "Bom Retiro", count: 2 },
+      { value: "costa e silva", label: "Costa e Silva", count: 2 },
+    ]);
+  });
+});
+
+describe("normalizePropertyType", () => {
+  test("groups noisy title-extracted property types into canonical categories", () => {
+    expect(normalizePropertyType("**Apartamento")).toBe("Apartamento");
+    expect(normalizePropertyType("Aluga-se quitinete ...")).toBe("Kitnet");
+    expect(normalizePropertyType("Alugo Mini Kitinete")).toBe("Kitnet");
+    expect(normalizePropertyType("Alugo quartos")).toBe("Quarto");
+    expect(
+      normalizePropertyType(
+        "15º andar com vista",
+        "Apartamento no 15º andar com vista",
+      ),
+    ).toBe("Apartamento");
+    expect(
+      normalizePropertyType(
+        "Aluga-se",
+        "Excelente residência no Iririú",
+        "https://sc.olx.com.br/imoveis/casa-123",
+      ),
+    ).toBe("Casa");
+    expect(normalizePropertyType("Aluga-se", "Ótima oportunidade")).toBe("");
+  });
+});
+
+describe("formatRelativeSeen and onlyRecentlyUpdated filter", () => {
+  const nowMs = Date.parse("2026-11-16T18:00:00Z");
+
+  test("computes days since update and flags stale listings after threshold", () => {
+    expect(getDaysSince("2026-11-16 12:00:00.000Z", nowMs)).toBe(0);
+    expect(formatRelativeSeen("2026-11-16T12:00:00Z", nowMs)).toEqual({
+      label: "Visto hoje",
+      days: 0,
+      isStale: false,
+    });
+    expect(formatRelativeSeen("2026-11-15T12:00:00Z", nowMs)).toEqual({
+      label: "Visto ontem",
+      days: 1,
+      isStale: false,
+    });
+    expect(formatRelativeSeen("2026-11-12T12:00:00Z", nowMs)).toEqual({
+      label: "Visto há 4 dias",
+      days: 4,
+      isStale: false,
+    });
+    expect(
+      formatRelativeSeen("2026-11-11T12:00:00Z", nowMs),
+    ).toEqual({
+      label: `Visto há ${RECENTLY_UPDATED_DAYS} dias`,
+      days: RECENTLY_UPDATED_DAYS,
+      isStale: true,
+    });
+    expect(formatRelativeSeen("", nowMs)).toEqual({
+      label: "Sem data",
+      days: null,
+      isStale: false,
+    });
+  });
+
+  test("onlyRecentlyUpdated filters out listings older than threshold or without dates", () => {
+    const mk = (id: string, updated: string, created = ""): ImovelItem => ({
+      id,
+      ref: "https://sc.olx.com.br/imoveis/1",
+      title: `Imóvel ${id}`,
+      textDescription: "",
+      portalName: "olx-imoveis",
+      idListing: "l1",
+      priceAluguel: 1500,
+      priceCondominio: 0,
+      priceIptu: 0,
+      totalPrice: 1500,
+      areaM2: 45,
+      pricePerM2: 33.33,
+      bedroom: 1,
+      bathroom: 1,
+      garage: 1,
+      neighborhood: "Centro",
+      city: "Joinville",
+      address: "Centro, Joinville",
+      propertyType: "Apartamento",
+      images: [],
+      favorite: false,
+      hidden: false,
+      rawFeatures: {},
+      created,
+      updated,
+    });
+
+    const items = [
+      mk("today", "2026-11-16T10:00:00Z"),
+      mk("four-days", "2026-11-12T10:00:00Z"),
+      mk("stale-five-days", "2026-11-11T10:00:00Z"),
+      mk("fallback-created-recent", "", "2026-11-15T10:00:00Z"),
+      mk("no-date", "", ""),
+    ];
+
+    expect(
+      filterAndSortImoveis(
+        items,
+        { ...DEFAULT_FILTERS, onlyRecentlyUpdated: true },
+        nowMs,
+      ).map((i) => i.id),
+    ).toEqual(["today", "fallback-created-recent", "four-days"]);
   });
 });

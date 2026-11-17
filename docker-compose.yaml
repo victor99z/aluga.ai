@@ -1,7 +1,6 @@
 services:
   crawler-pup:
     build: ./crawler-pup
-    container_name: crawler-pup
     restart: unless-stopped
     environment:
       - DB_TYPE=${DB_TYPE:-pocketbase}
@@ -12,15 +11,12 @@ services:
       - POCKETBASE_UPLOAD_IMAGES=${POCKETBASE_UPLOAD_IMAGES:-true}
     volumes:
       - ./crawler-pup/logs:/app/logs
-    networks:
-      - aluga-net
 
   dashboard:
     build:
       context: ./dashboard
       args:
         - VITE_POCKETBASE_URL=${POCKETBASE_URL:-https://pb.victorbernardes.me}
-    container_name: aluga-dashboard
     restart: unless-stopped
     expose:
       - "3000"
@@ -40,22 +36,12 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
-    networks:
-      - aluga-net
 
   cloudflared:
     image: cloudflare/cloudflared:latest
-    container_name: aluga-cloudflared
     restart: unless-stopped
     command: tunnel --no-autoupdate run
     environment:
       - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
     depends_on:
-      dashboard:
-        condition: service_healthy
-    networks:
-      - aluga-net
-
-networks:
-  aluga-net:
-    driver: bridge
+      - dashboard
