@@ -363,6 +363,66 @@ describe("authenticateWithPocketBase", () => {
     expect(superSession.email).toBe("admin@example.com");
   });
 
+  test("falls back to legacy /api/admins/auth-with-password when _superusers rejects with 401", async () => {
+    const legacyAuthStore: {
+      isValid: boolean;
+      token: string;
+      record: Record<string, unknown> | null;
+      save: (token: string, record: Record<string, unknown> | null) => void;
+    } = {
+      isValid: false,
+      token: "",
+      record: null,
+      save(token, record) {
+        this.isValid = Boolean(token);
+        this.token = token;
+        this.record = record;
+      },
+    };
+
+    const mockPbLegacy = {
+      baseURL: "https://pb.example.com",
+      authStore: legacyAuthStore,
+      collection: (name: string) => ({
+        authWithPassword: async () => {
+          if (name === "users") {
+            throw Object.assign(new Error("Failed to authenticate."), {
+              status: 400,
+            });
+          }
+          throw Object.assign(
+            new Error("Missing or invalid authentication."),
+            { status: 401 },
+          );
+        },
+      }),
+      send: async (path: string, options: { body?: { identity?: string } }) => {
+        if (path === "/api/admins/auth-with-password") {
+          return {
+            token: "legacy-admin-jwt",
+            admin: {
+              id: "adm1",
+              email: options.body?.identity ?? "admin@example.com",
+            },
+          };
+        }
+        throw new Error(`Unexpected path: ${path}`);
+      },
+    } as unknown as PocketBase;
+
+    const legacySession = await authenticateWithPocketBase(
+      mockPbLegacy,
+      "admin@example.com",
+      "secret",
+    );
+    expect(legacySession).toEqual({
+      id: "adm1",
+      email: "admin@example.com",
+      role: "superuser",
+    });
+    expect(legacyAuthStore.token).toBe("legacy-admin-jwt");
+  });
+
   test("throws invalid credentials message when all auth collections reject", async () => {
     const mockPbFail = {
       baseURL: "https://pb.example.com",
@@ -378,6 +438,32 @@ describe("authenticateWithPocketBase", () => {
 
     await expect(
       authenticateWithPocketBase(mockPbFail, "bad@example.com", "wrong"),
+    ).rejects.toThrow("E-mail ou senha inválidos.");
+
+    const mockPbMissingAuth = {
+      baseURL: "https://pb.example.com",
+      authStore: { isValid: false, record: null },
+      collection: () => ({
+        authWithPassword: async () => {
+          throw Object.assign(
+            new Error("Missing or invalid authentication."),
+            { status: 401 },
+          );
+        },
+      }),
+      send: async () => {
+        throw Object.assign(new Error("Failed to authenticate."), {
+          status: 400,
+        });
+      },
+    } as unknown as PocketBase;
+
+    await expect(
+      authenticateWithPocketBase(
+        mockPbMissingAuth,
+        "bad@example.com",
+        "wrong",
+      ),
     ).rejects.toThrow("E-mail ou senha inválidos.");
   });
 });

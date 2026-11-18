@@ -187,20 +187,17 @@ function safeStorageSet(key: string, value: string): void {
 }
 
 export function getSavedPocketBaseUrl(): string {
-  const stored = safeStorageGet(PB_URL_STORAGE_KEY)?.trim();
-  if (stored) return stored;
-  if (runtimeLocalSampleMode && typeof window !== "undefined") {
-    return window.location.origin;
+  const origin =
+    typeof window !== "undefined" ? window.location.origin.replace(/\/+$/, "") : "";
+  const stored = safeStorageGet(PB_URL_STORAGE_KEY)?.trim().replace(/\/+$/, "");
+  if (stored && (runtimeLocalSampleMode || !origin || stored !== origin)) {
+    return stored;
+  }
+  if (runtimeLocalSampleMode && origin) {
+    return origin;
   }
   if (runtimePocketBaseUrl) {
     return runtimePocketBaseUrl;
-  }
-  if (
-    typeof window !== "undefined" &&
-    (window.location.hostname === "localhost" ||
-      window.location.hostname === "127.0.0.1")
-  ) {
-    return window.location.origin;
   }
   return DEFAULT_POCKETBASE_URL;
 }
@@ -270,6 +267,12 @@ function getHttpStatus(err: unknown): number | undefined {
   return undefined;
 }
 
+interface LegacyAdminAuthResponse {
+  token?: unknown;
+  admin?: Record<string, unknown> | null;
+  record?: Record<string, unknown> | null;
+}
+
 export async function authenticateWithPocketBase(
   pb: PocketBase,
   email: string,
@@ -287,20 +290,42 @@ export async function authenticateWithPocketBase(
     },
   ];
 
-  const legacyAdmins = (
-    pb as unknown as {
-      admins?: { authWithPassword?: (e: string, p: string) => Promise<unknown> };
-    }
-  ).admins;
-  if (typeof legacyAdmins?.authWithPassword === "function") {
+  const pbWithLegacy = pb as unknown as {
+    admins?: { authWithPassword?: (e: string, p: string) => Promise<unknown> };
+    send?: (path: string, options: Record<string, unknown>) => Promise<unknown>;
+  };
+  if (typeof pbWithLegacy.admins?.authWithPassword === "function") {
     attempts.push({
       role: "superuser",
-      run: () => legacyAdmins.authWithPassword!(trimmedEmail, password),
+      run: () => pbWithLegacy.admins!.authWithPassword!(trimmedEmail, password),
+    });
+  }
+  if (typeof pbWithLegacy.send === "function") {
+    attempts.push({
+      role: "superuser",
+      run: async () => {
+        const res = (await pbWithLegacy.send!("/api/admins/auth-with-password", {
+          method: "POST",
+          body: { identity: trimmedEmail, password },
+        })) as LegacyAdminAuthResponse | null;
+        if (!res || typeof res.token !== "string" || !res.token) {
+          throw new Error("Failed to authenticate.");
+        }
+        const adminRecord = res.admin ?? res.record ?? {};
+        pb.authStore.save(res.token, {
+          ...adminRecord,
+          id: String(adminRecord.id ?? ""),
+          email: String(adminRecord.email ?? trimmedEmail),
+          collectionName: "_superusers",
+        } as never);
+        return res;
+      },
     });
   }
 
   let lastError: unknown;
   let allNetworkErrors = true;
+  let lastStatus: number | undefined;
 
   for (const attempt of attempts) {
     try {
@@ -317,6 +342,7 @@ export async function authenticateWithPocketBase(
       const status = getHttpStatus(err);
       if (status !== undefined && status !== 0) {
         allNetworkErrors = false;
+        lastStatus = status;
       }
     }
   }
@@ -327,11 +353,17 @@ export async function authenticateWithPocketBase(
     );
   }
 
-  const msg =
-    lastError instanceof Error && lastError.message && !lastError.message.includes("Failed to authenticate")
-      ? lastError.message
-      : "E-mail ou senha inválidos.";
-  throw new Error(msg);
+  const rawMsg = lastError instanceof Error ? lastError.message : "";
+  const isCredentialOrAuthError =
+    lastStatus === 400 ||
+    lastStatus === 401 ||
+    lastStatus === 403 ||
+    lastStatus === 404 ||
+    /failed to authenticate|missing or invalid authentication/i.test(rawMsg);
+
+  throw new Error(
+    isCredentialOrAuthError || !rawMsg ? "E-mail ou senha inválidos." : rawMsg,
+  );
 }
 
 function parseJsonObject(raw: unknown): Record<string, unknown> {

@@ -243,7 +243,8 @@ async function handleLocalApi(req: Request, url: URL): Promise<Response | null> 
 
   if (
     (url.pathname === "/api/collections/users/auth-with-password" ||
-      url.pathname === "/api/collections/_superusers/auth-with-password") &&
+      url.pathname === "/api/collections/_superusers/auth-with-password" ||
+      url.pathname === "/api/admins/auth-with-password") &&
     req.method === "POST"
   ) {
     const body = (await req.json().catch(() => ({}))) as {

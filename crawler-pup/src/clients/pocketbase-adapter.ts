@@ -242,7 +242,25 @@ export class PocketBaseAdapter implements DbAdapter {
             .collection("_superusers")
             .authWithPassword(email, password);
         } catch {
-          await this.pb.admins.authWithPassword(email, password);
+          try {
+            await this.pb.admins.authWithPassword(email, password);
+          } catch {
+            const res = (await this.pb.send("/api/admins/auth-with-password", {
+              method: "POST",
+              body: { identity: email, password },
+            })) as {
+              token?: unknown;
+              admin?: Record<string, unknown> | null;
+              record?: Record<string, unknown> | null;
+            } | null;
+            if (!res || typeof res.token !== "string" || !res.token) {
+              throw new Error("Failed to authenticate admin with PocketBase.");
+            }
+            this.pb.authStore.save(
+              res.token,
+              (res.admin ?? res.record ?? null) as never,
+            );
+          }
         }
       })().finally(() => {
         this.authPromise = null;
