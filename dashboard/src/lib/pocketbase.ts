@@ -211,6 +211,9 @@ export function savePocketBaseUrl(url: string): string {
 export function createPocketBaseClient(url?: string): PocketBase {
   const client = new PocketBase((url ?? getSavedPocketBaseUrl()).replace(/\/+$/, ""));
   client.autoCancellation(false);
+  if (!client.authStore.isValid && client.authStore.token) {
+    client.authStore.clear?.();
+  }
   return client;
 }
 
@@ -230,7 +233,10 @@ export function saveLocalImovelPrefs(prefs: LocalImovelPrefsMap): void {
 }
 
 export function getAuthSessionUser(pb: PocketBase): AuthSessionUser | null {
-  if (!pb.authStore.isValid) return null;
+  if (!pb.authStore.isValid) {
+    pb.authStore.clear?.();
+    return null;
+  }
 
   const store = pb.authStore as unknown as {
     record?: Record<string, unknown> | null;
@@ -279,6 +285,7 @@ export async function authenticateWithPocketBase(
   password: string,
 ): Promise<AuthSessionUser> {
   const trimmedEmail = email.trim();
+  pb.authStore?.clear?.();
   const attempts: Array<{ role: AuthRole; run: () => Promise<unknown> }> = [
     {
       role: "user",
@@ -329,6 +336,7 @@ export async function authenticateWithPocketBase(
 
   for (const attempt of attempts) {
     try {
+      pb.authStore?.clear?.();
       await attempt.run();
       const session = getAuthSessionUser(pb);
       if (session) return session;

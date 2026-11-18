@@ -12,6 +12,7 @@ import {
   DEFAULT_POCKETBASE_URL,
   deleteImovelRecords,
   filterAndSortImoveis,
+  getAuthSessionUser,
   getSavedPocketBaseUrl,
   isInvalidOlxRef,
   normalizeCityName,
@@ -465,6 +466,75 @@ describe("authenticateWithPocketBase", () => {
         "wrong",
       ),
     ).rejects.toThrow("E-mail ou senha inválidos.");
+  });
+
+  test("clears stale or expired authStore tokens before checking session and before login requests", async () => {
+    const staleStore: {
+      isValid: boolean;
+      token: string;
+      record: Record<string, unknown> | null;
+      clear: () => void;
+      save: (token: string, record: Record<string, unknown> | null) => void;
+    } = {
+      isValid: false,
+      token: "expired-jwt",
+      record: { id: "old", email: "old@example.com" },
+      clear() {
+        this.token = "";
+        this.isValid = false;
+        this.record = null;
+      },
+      save(token, record) {
+        this.token = token;
+        this.isValid = Boolean(token);
+        this.record = record;
+      },
+    };
+
+    const mockPbWithStale = {
+      baseURL: "https://pb.example.com",
+      authStore: staleStore,
+      collection: (name: string) => ({
+        authWithPassword: async (email: string) => {
+          if (staleStore.token) {
+            throw Object.assign(
+              new Error("Missing or invalid authentication."),
+              { status: 401 },
+            );
+          }
+          if (name === "_superusers") {
+            staleStore.save("fresh-jwt", {
+              id: "su1",
+              email,
+              collectionName: "_superusers",
+            });
+            return {};
+          }
+          throw Object.assign(new Error("Failed to authenticate."), {
+            status: 400,
+          });
+        },
+      }),
+    } as unknown as PocketBase;
+
+    expect(getAuthSessionUser(mockPbWithStale)).toBeNull();
+    expect(staleStore.token).toBe("");
+
+    staleStore.token = "expired-jwt";
+    staleStore.isValid = false;
+    staleStore.record = { id: "old", email: "old@example.com" };
+
+    const session = await authenticateWithPocketBase(
+      mockPbWithStale,
+      "admin@example.com",
+      "secret",
+    );
+    expect(session).toEqual({
+      id: "su1",
+      email: "admin@example.com",
+      role: "superuser",
+    });
+    expect(staleStore.token).toBe("fresh-jwt");
   });
 });
 

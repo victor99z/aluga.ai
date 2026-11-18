@@ -62,11 +62,22 @@ export function App() {
       const next = await fetchDashboardSnapshot(client);
       setSnapshot(next);
     } catch (err) {
-      setLoadError(
-        err instanceof Error
-          ? err.message
-          : "Erro ao carregar dados do PocketBase.",
-      );
+      const status =
+        typeof err === "object" && err !== null && "status" in err
+          ? (err as { status?: unknown }).status
+          : undefined;
+      const message = err instanceof Error ? err.message : "";
+      if (
+        status === 401 ||
+        /missing or invalid authentication/i.test(message)
+      ) {
+        client.authStore.clear();
+        setSessionUser(null);
+        setSnapshot(EMPTY_SNAPSHOT);
+        setSelectedImovel(null);
+        return;
+      }
+      setLoadError(message || "Erro ao carregar dados do PocketBase.");
     } finally {
       setLoading(false);
     }

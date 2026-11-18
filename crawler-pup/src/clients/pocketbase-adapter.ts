@@ -237,14 +237,17 @@ export class PocketBaseAdapter implements DbAdapter {
       const email = this.email;
       const password = this.password;
       this.authPromise = (async () => {
+        this.pb.authStore.clear?.();
         try {
           await this.pb
             .collection("_superusers")
             .authWithPassword(email, password);
         } catch {
+          this.pb.authStore.clear?.();
           try {
             await this.pb.admins.authWithPassword(email, password);
           } catch {
+            this.pb.authStore.clear?.();
             const res = (await this.pb.send("/api/admins/auth-with-password", {
               method: "POST",
               body: { identity: email, password },
