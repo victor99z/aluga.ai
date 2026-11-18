@@ -143,7 +143,7 @@ export function PortalsSection({
               const isSaved = savedId === item.id;
 
               return (
-                <tr key={item.id} className="hover:bg-[#E6E6FA]/30">
+                <tr key={item.id}>
                   <th
                     scope="row"
                     className="px-4 py-3 whitespace-nowrap font-bold text-[#2D2D2D]"

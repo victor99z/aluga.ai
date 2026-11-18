@@ -339,15 +339,27 @@ dialog.imovel-dialog::backdrop {
 .table-wrapper thead {
   position: sticky;
   inset-block-start: 0;
-  z-index: 1;
+  z-index: 2;
   background: var(--knoll-lavender);
 }
 
 .table-wrapper tbody th {
   position: sticky;
   inset-inline-start: 0;
+  z-index: 1;
   background: var(--knoll-card);
   text-align: left;
+  transition: background-color 140ms ease-out;
+}
+
+.table-wrapper tbody td {
+  transition: background-color 140ms ease-out;
+}
+
+.table-wrapper tbody tr:hover th,
+.table-wrapper tbody tr:hover td {
+  background: #f6f5fc;
+  background: color-mix(in srgb, var(--knoll-lavender) 35%, var(--knoll-card));
 }
 
 @container (width < 600px) {
@@ -373,7 +385,8 @@ dialog.imovel-dialog::backdrop {
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
   }
 
-  .table-wrapper tbody th {
+  .table-wrapper tbody th,
+  .table-wrapper tbody tr:hover th {
     position: sticky;
     inset-block-start: 0;
     z-index: 2;
@@ -382,7 +395,9 @@ dialog.imovel-dialog::backdrop {
     border-bottom: 1px solid var(--knoll-border);
   }
 
-  .table-wrapper tbody td {
+  .table-wrapper tbody td,
+  .table-wrapper tbody tr:hover td {
+    background: var(--knoll-card);
     padding: 0.5rem 1rem;
     border-bottom: 1px solid rgba(45, 45, 45, 0.08);
   }

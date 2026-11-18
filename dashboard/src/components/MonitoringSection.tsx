@@ -114,7 +114,7 @@ export function MonitoringSection({
               </thead>
               <tbody className="divide-y divide-[#00000020]/40">
                 {runs.map((run) => (
-                  <tr key={run.id} className="hover:bg-[#E6E6FA]/30">
+                  <tr key={run.id}>
                     <th
                       scope="row"
                       className="px-4 py-3 whitespace-nowrap font-bold text-[#2D2D2D]"
@@ -247,7 +247,7 @@ export function MonitoringSection({
               </thead>
               <tbody className="divide-y divide-[#00000020]/40">
                 {filteredLogs.map((log) => (
-                  <tr key={log.id} className="hover:bg-[#E6E6FA]/30">
+                  <tr key={log.id}>
                     <th
                       scope="row"
                       className="px-4 py-2.5 font-mono whitespace-nowrap font-medium text-[#5C5559]"

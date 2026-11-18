@@ -125,10 +125,24 @@ function extractAreaFromSlug(url: string): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
-function extractCondominioFromAdditionalProperty(
+export interface AdditionalPropertyFields {
+  price_condominio?: number;
+  price_iptu?: number;
+  area_m2?: number;
+  bedroom?: number;
+  bathroom?: number;
+  garage?: number;
+}
+
+/**
+ * Extracts structured numeric attributes (condomínio, IPTU, area, rooms, garage)
+ * from schema.org `additionalProperty` / `PropertyValue` entries.
+ */
+export function extractAdditionalPropertyFields(
   additionalProperty: unknown,
-): number | undefined {
-  if (!additionalProperty) return undefined;
+): AdditionalPropertyFields {
+  const result: AdditionalPropertyFields = {};
+  if (!additionalProperty) return result;
   const list = Array.isArray(additionalProperty)
     ? additionalProperty
     : [additionalProperty];
@@ -137,13 +151,30 @@ function extractCondominioFromAdditionalProperty(
     const obj = entry as Record<string, unknown>;
     const name = String(obj.name ?? "").toLowerCase();
     if (name.includes("condom")) {
-      return toFiniteNumber(obj.value);
+      result.price_condominio ??= toFiniteNumber(obj.value);
+    } else if (name.includes("iptu")) {
+      result.price_iptu ??= toFiniteNumber(obj.value);
+    } else if (
+      name.includes("área útil") ||
+      name.includes("area util") ||
+      name.includes("área privativa") ||
+      name.includes("area privativa")
+    ) {
+      result.area_m2 ??= toFiniteNumber(obj.value);
+    } else if (name.includes("quarto") || name.includes("dormit")) {
+      result.bedroom ??= toFiniteNumber(obj.value);
+    } else if (name.includes("banheiro")) {
+      result.bathroom ??= toFiniteNumber(obj.value);
+    } else if (name.includes("vaga") || name.includes("garagem")) {
+      result.garage ??= toFiniteNumber(obj.value);
     }
   }
-  return undefined;
+  return result;
 }
 
-function flattenJsonLdBlocks(blocks: unknown[]): Record<string, unknown>[] {
+export function flattenJsonLdBlocks(
+  blocks: unknown[],
+): Record<string, unknown>[] {
   const result: Record<string, unknown>[] = [];
   const pushBlock = (entry: unknown) => {
     if (!entry || typeof entry !== "object") return;
@@ -164,7 +195,7 @@ function flattenJsonLdBlocks(blocks: unknown[]): Record<string, unknown>[] {
 
 function extractNeighborhoodFromTitle(text: string): string | undefined {
   const match = text.match(
-    /\bbairro\s+([A-Za-zÀ-ÿ0-9\s\-]+?)(?=\s+(?:em|com)\s+|\s*,|\s*-|$)/i,
+    /\bbairro\s+([A-Za-zÀ-ÿ0-9\s\-]+?)(?=\s+(?:em|com|para|pra|por|dispon[ií]vel|pr[oó]ximo|compost[oa]|contendo|mobiliad[oa]|semimobiliad[oa])\b|\s*[,.\-|!?:]|$)/i,
   );
   return match?.[1]?.trim() || undefined;
 }
@@ -205,25 +236,99 @@ function extractLocationFields(
   return { neighborhood, city };
 }
 
-function mergeListingsByRef(items: ExtractedListing[]): ExtractedListing[] {
+function pickPositive(
+  primary: number | undefined,
+  secondary: number | undefined,
+): number | undefined {
+  if (typeof primary === "number" && Number.isFinite(primary) && primary > 0) {
+    return primary;
+  }
+  if (
+    typeof secondary === "number" &&
+    Number.isFinite(secondary) &&
+    secondary > 0
+  ) {
+    return secondary;
+  }
+  return primary ?? secondary;
+}
+
+function pickString(
+  primary: string | undefined,
+  secondary: string | undefined,
+): string | undefined {
+  const p = typeof primary === "string" ? primary.trim() : "";
+  if (p) return p;
+  const s = typeof secondary === "string" ? secondary.trim() : "";
+  return s || undefined;
+}
+
+function mergeTwoListings(
+  base: ExtractedListing,
+  incoming: ExtractedListing,
+): ExtractedListing {
+  return {
+    ref: base.ref,
+    text_description:
+      pickString(base.text_description, incoming.text_description) ?? "",
+    features: {
+      ...incoming.features,
+      ...base.features,
+      price_aluguel:
+        pickPositive(
+          base.features.price_aluguel,
+          incoming.features.price_aluguel,
+        ) ?? 0,
+      price_condominio: pickPositive(
+        base.features.price_condominio,
+        incoming.features.price_condominio,
+      ),
+      price_iptu: pickPositive(
+        base.features.price_iptu,
+        incoming.features.price_iptu,
+      ),
+      area_m2: pickPositive(base.features.area_m2, incoming.features.area_m2),
+      bedroom: pickPositive(base.features.bedroom, incoming.features.bedroom),
+      bathroom: pickPositive(
+        base.features.bathroom,
+        incoming.features.bathroom,
+      ),
+      garage: pickPositive(base.features.garage, incoming.features.garage),
+      propertyType: pickString(
+        base.features.propertyType,
+        incoming.features.propertyType,
+      ),
+      neighborhood:
+        pickString(base.features.neighborhood, incoming.features.neighborhood) ??
+        "",
+      city: pickString(base.features.city, incoming.features.city),
+      address: pickString(base.features.address, incoming.features.address),
+      title: pickString(base.features.title, incoming.features.title),
+    },
+    images:
+      base.images && base.images.length > 0
+        ? base.images
+        : (incoming.images ?? []),
+  };
+}
+
+/**
+ * Merges primary extracted listings (e.g. JSON-LD) with secondary listings
+ * (e.g. DOM cards) by `ref`, filling missing or zero fields without overwriting
+ * valid non-zero values.
+ */
+export function mergeListingsWithDom(
+  primary: ExtractedListing[],
+  secondary: ExtractedListing[],
+): ExtractedListing[] {
   const byRef = new Map<string, ExtractedListing>();
-  for (const item of items) {
+  for (const item of primary) {
     const existing = byRef.get(item.ref);
-    if (!existing) {
-      byRef.set(item.ref, item);
-      continue;
-    }
-    const existingScore =
-      (existing.features.price_aluguel > 0 ? 2 : 0) +
-      (existing.text_description ? 1 : 0) +
-      (existing.images?.length ?? 0);
-    const nextScore =
-      (item.features.price_aluguel > 0 ? 2 : 0) +
-      (item.text_description ? 1 : 0) +
-      (item.images?.length ?? 0);
-    if (nextScore > existingScore) {
-      byRef.set(item.ref, item);
-    }
+    byRef.set(item.ref, existing ? mergeTwoListings(existing, item) : item);
+  }
+  for (const item of secondary) {
+    const existing = byRef.get(item.ref);
+    byRef.set(item.ref, existing ? mergeTwoListings(existing, item) : item);
   }
   return [...byRef.values()];
 }
@@ -264,9 +369,14 @@ export function parseJsonLdBlocks(blocks: unknown[]): ExtractedListing[] {
 
         const descStr =
           typeof item.description === "string" ? item.description : "";
-        const extraPrices = rawIptuAndCondominioToNumbers(descStr);
-        const condoFromOffer = extractCondominioFromAdditionalProperty(
+        const extraPrices = rawIptuAndCondominioToNumbers(
+          `${descStr} ${textDescription}`.trim(),
+        );
+        const offerProps = extractAdditionalPropertyFields(
           offers?.additionalProperty,
+        );
+        const itemProps = extractAdditionalPropertyFields(
+          item.additionalProperty,
         );
 
         const price = toFiniteNumber(offers?.price) ?? 0;
@@ -276,26 +386,42 @@ export function parseJsonLdBlocks(blocks: unknown[]): ExtractedListing[] {
           text_description: textDescription,
           features: {
             price_aluguel: price,
-            price_condominio: condoFromOffer ?? extraPrices.price_condominio,
-            price_iptu: extraPrices.price_iptu,
+            price_condominio:
+              offerProps.price_condominio ??
+              itemProps.price_condominio ??
+              extraPrices.price_condominio,
+            price_iptu:
+              offerProps.price_iptu ??
+              itemProps.price_iptu ??
+              extraPrices.price_iptu,
             propertyType:
               (typeof item.model === "string" ? item.model : undefined) ??
               titleParsed.propertyType ??
               inferPropertyType(textDescription),
             area_m2:
               parseArea(item.floorSize) ??
+              itemProps.area_m2 ??
+              offerProps.area_m2 ??
               titleParsed.area_m2 ??
               scParsed.area_m2 ??
               extractAreaFromSlug(ref),
             bedroom:
               toFiniteNumber(item.numberOfBedrooms) ??
+              itemProps.bedroom ??
+              offerProps.bedroom ??
               titleParsed.bedroom ??
               scParsed.bedroom,
             bathroom:
               toFiniteNumber(item.numberOfBathroomsTotal) ??
+              itemProps.bathroom ??
+              offerProps.bathroom ??
               titleParsed.bathroom ??
               scParsed.bathroom,
-            garage: titleParsed.garage ?? scParsed.garage,
+            garage:
+              itemProps.garage ??
+              offerProps.garage ??
+              titleParsed.garage ??
+              scParsed.garage,
             neighborhood: loc.neighborhood ?? "",
             city: loc.city,
           },
@@ -382,27 +508,70 @@ export function parseJsonLdBlocks(blocks: unknown[]): ExtractedListing[] {
       const loc = extractLocationFields(address, textDescription);
       const parsedPrice = toFiniteNumber(node.price) ?? 0;
 
+      const descText = [
+        typeof node.description === "string" ? node.description : "",
+        typeof apartment.description === "string" ? apartment.description : "",
+        typeof block.description === "string" ? block.description : "",
+        textDescription,
+      ]
+        .filter(Boolean)
+        .join(" ");
+      const extraPrices = rawIptuAndCondominioToNumbers(descText);
+      const nodeProps = extractAdditionalPropertyFields(
+        node.additionalProperty,
+      );
+      const aptProps = extractAdditionalPropertyFields(
+        apartment.additionalProperty,
+      );
+      const blockProps = extractAdditionalPropertyFields(
+        block.additionalProperty,
+      );
+
       listings.push({
         ref,
         text_description: textDescription,
         features: {
           price_aluguel: parsedPrice,
+          price_condominio:
+            nodeProps.price_condominio ??
+            aptProps.price_condominio ??
+            blockProps.price_condominio ??
+            extraPrices.price_condominio,
+          price_iptu:
+            nodeProps.price_iptu ??
+            aptProps.price_iptu ??
+            blockProps.price_iptu ??
+            extraPrices.price_iptu,
           propertyType:
             titleParsed.propertyType ?? inferPropertyType(textDescription),
           area_m2:
             parseArea(apartment.floorSize) ??
+            aptProps.area_m2 ??
+            nodeProps.area_m2 ??
+            blockProps.area_m2 ??
             titleParsed.area_m2 ??
             scParsed.area_m2 ??
             extractAreaFromSlug(ref),
           bedroom:
             toFiniteNumber(apartment.numberOfBedrooms) ??
+            aptProps.bedroom ??
+            nodeProps.bedroom ??
+            blockProps.bedroom ??
             titleParsed.bedroom ??
             scParsed.bedroom,
           bathroom:
             toFiniteNumber(apartment.numberOfBathroomsTotal) ??
+            aptProps.bathroom ??
+            nodeProps.bathroom ??
+            blockProps.bathroom ??
             titleParsed.bathroom ??
             scParsed.bathroom,
-          garage: titleParsed.garage ?? scParsed.garage,
+          garage:
+            aptProps.garage ??
+            nodeProps.garage ??
+            blockProps.garage ??
+            titleParsed.garage ??
+            scParsed.garage,
           neighborhood: loc.neighborhood ?? "",
           city: loc.city,
         },
@@ -411,7 +580,7 @@ export function parseJsonLdBlocks(blocks: unknown[]): ExtractedListing[] {
     }
   }
 
-  return mergeListingsByRef(listings);
+  return mergeListingsWithDom(listings, []);
 }
 
 export async function extractJsonLdListings(

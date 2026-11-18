@@ -595,4 +595,40 @@ describe("normalizeNeighborhood and normalizeCityName", () => {
       { value: "bom retiro", label: "Bom Retiro", count: 4 },
     ]);
   });
+
+  test("groups Pirabeiraba parenthetical districts and strips trailing listing phrases", () => {
+    const knownCities = ["Joinville", "Jaraguá do Sul"];
+    const variants = [
+      "Dona Francisca (Pirabeiraba)",
+      "Pirabeiraba",
+      "Pirabeiraba (Pirabeiraba)",
+      "Pirabeiraba para locação",
+      "Pirabeiraba para locação com 2 quartos",
+      "Rio Bonito (Pirabeiraba)",
+      "Pirabeiraba.",
+    ];
+
+    for (const raw of variants) {
+      expect(normalizeNeighborhood(raw, "Joinville", knownCities)).toBe(
+        "Pirabeiraba",
+      );
+    }
+
+    const grouped = buildCanonicalGroups(
+      variants.map((raw) =>
+        normalizeNeighborhood(raw, "Joinville", knownCities),
+      ),
+    );
+    expect(grouped).toEqual([
+      { value: "pirabeiraba", label: "Pirabeiraba", count: 7 },
+    ]);
+
+    expect(
+      normalizeNeighborhood(
+        "João Pessoa (Jaraguá do Sul)",
+        "",
+        knownCities,
+      ),
+    ).toBe("João Pessoa");
+  });
 });

@@ -948,7 +948,7 @@ export function CatalogSection({
               {pagedItems.map((item) => {
                 const seen = formatRelativeSeen(item.updated || item.created);
                 return (
-                <tr key={item.id} className="hover:bg-[#E6E6FA]/35">
+                <tr key={item.id}>
                   <th
                     scope="row"
                     className="max-w-xs px-4 py-3 font-bold text-[#2D2D2D]"

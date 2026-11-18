@@ -1,11 +1,13 @@
 import { describe, test, expect } from "bun:test";
+import { mapChavesNaMaoCard } from "../chaves-na-mao";
 import {
   buildQueryPageUrl,
   extractCityFromRegion,
+  mergeListingsWithDom,
   parseJsonLdBlocks,
   resolveListingUrl,
 } from "../extractors";
-import { mapImoveisScCard } from "../imoveis-sc";
+import { mapImoveisScCard, parseImoveisScDetailHtml } from "../imoveis-sc";
 import { isValidOlxImovelUrl, mapOlxCard } from "../olx-imoveis";
 import { mapVivarealCard } from "../vivareal-imoveis";
 
@@ -158,6 +160,35 @@ describe("parseJsonLdBlocks", () => {
     expect(listings[0]?.features.city).toBe("Joinville");
     expect(listings[0]?.images).toEqual(["https://resizedimgs.zapimoveis.com.br/1.webp"]);
   });
+
+  test("extractNeighborhoodFromTitle stops before trailing listing phrases", () => {
+    const blocks = [
+      {
+        "@type": "ItemList",
+        itemListElement: [
+          {
+            "@type": "ListItem",
+            position: 1,
+            item: {
+              "@type": "Product",
+              name: "Apartamento no bairro Pirabeiraba para locação",
+              url: "https://www.zapimoveis.com.br/imovel/2918869999/",
+              address: {
+                "@type": "PostalAddress",
+                addressLocality: "Joinville",
+                addressRegion: "SC",
+              },
+              offers: { price: 1800 },
+            },
+          },
+        ],
+      },
+    ];
+
+    const listings = parseJsonLdBlocks(blocks);
+    expect(listings.length).toBe(1);
+    expect(listings[0]?.features.neighborhood).toBe("Pirabeiraba");
+  });
 });
 
 describe("DOM card mappers", () => {
@@ -282,5 +313,123 @@ describe("DOM card mappers", () => {
     expect(valid?.features.price_condominio).toBe(520);
     expect(valid?.features.bedroom).toBe(2);
     expect(valid?.features.garage).toBe(1);
+  });
+
+  test("mapChavesNaMaoCard and mergeListingsWithDom extract condomínio and garage from DOM without overwriting JSON-LD fields", () => {
+    const jsonLdListings = parseJsonLdBlocks([
+      {
+        "@type": "RealEstateListing",
+        offers: {
+          itemListElement: [
+            {
+              url: "https://www.chavesnamao.com.br/imovel/apartamento-para-alugar-2-quartos-com-garagem-sc-joinville-gloria-94m2-RS6900/id-48887171/",
+              name: "Apartamento com 2 quartos para alugar na Rua Euzébio de Queirós, 485, Glória, Joinville",
+              price: "6900",
+              image: "https://www.chavesnamao.com.br/imn/photo.jpg",
+              itemOffered: {
+                numberOfBedrooms: 2,
+                numberOfBathroomsTotal: 2,
+                floorSize: { unitText: "94m²" },
+                address: {
+                  addressLocality: "Glória",
+                  addressRegion: "Joinville, SC",
+                },
+              },
+            },
+          ],
+        },
+      },
+    ]);
+
+    expect(jsonLdListings[0]?.features.price_condominio).toBeUndefined();
+    expect(jsonLdListings[0]?.features.garage).toBeUndefined();
+
+    const domCard = mapChavesNaMaoCard({
+      title: "Apartamento com 2 quartos para alugar na Rua Euzébio de Queirós, 485, Glória, Joinville",
+      href: "/imovel/apartamento-para-alugar-2-quartos-com-garagem-sc-joinville-gloria-94m2-RS6900/id-48887171/",
+      address: "Glória, Joinville/SC",
+      price: "R$ 6.900",
+      extraPrice:
+        "Condomínio CondomínioR$ 600 94m² de área útil 94m² 2 quartos 2 2 banheiros 2 2 vagas 2",
+      image: "",
+    });
+    expect(domCard).not.toBeNull();
+
+    const merged = mergeListingsWithDom(jsonLdListings, domCard ? [domCard] : []);
+    expect(merged.length).toBe(1);
+    expect(merged[0]?.features.price_aluguel).toBe(6900);
+    expect(merged[0]?.features.price_condominio).toBe(600);
+    expect(merged[0]?.features.area_m2).toBe(94);
+    expect(merged[0]?.features.bedroom).toBe(2);
+    expect(merged[0]?.features.bathroom).toBe(2);
+    expect(merged[0]?.features.garage).toBe(2);
+    expect(merged[0]?.features.neighborhood).toBe("Glória");
+    expect(merged[0]?.features.city).toBe("Joinville");
+    expect(merged[0]?.images).toEqual([
+      "https://www.chavesnamao.com.br/imn/photo.jpg",
+    ]);
+
+    const preserved = mergeListingsWithDom(merged, [
+      {
+        ref: merged[0]!.ref,
+        text_description: "",
+        features: {
+          price_aluguel: 0,
+          price_condominio: 0,
+          area_m2: undefined,
+        },
+        images: [],
+      },
+    ]);
+    expect(preserved[0]?.features.price_aluguel).toBe(6900);
+    expect(preserved[0]?.features.price_condominio).toBe(600);
+    expect(preserved[0]?.features.area_m2).toBe(94);
+  });
+
+  test("parseImoveisScDetailHtml and mapImoveisScCard extract condomínio, IPTU, and garage", () => {
+    const detailHtml = `
+      <html>
+        <head>
+          <script type="application/ld+json">
+            {
+              "@type": "RealEstateListing",
+              "additionalProperty": [
+                { "@type": "PropertyValue", "name": "Área útil", "value": 66 },
+                { "@type": "PropertyValue", "name": "Quartos", "value": 2 },
+                { "@type": "PropertyValue", "name": "Banheiros", "value": 1 },
+                { "@type": "PropertyValue", "name": "Vagas", "value": 2 },
+                { "@type": "PropertyValue", "name": "Condomínio", "value": "R$ 430" }
+              ]
+            }
+          </script>
+        </head>
+        <body>
+          <div class="grid">
+            <div><span>Condomínio</span><span>R$ 430</span></div>
+            <div><p>IPTU</p><p>R$ 95/mês</p></div>
+          </div>
+        </body>
+      </html>
+    `;
+    const parsedDetail = parseImoveisScDetailHtml(detailHtml);
+    expect(parsedDetail.price_condominio).toBe(430);
+    expect(parsedDetail.price_iptu).toBe(95);
+    expect(parsedDetail.area_m2).toBe(66);
+    expect(parsedDetail.bedroom).toBe(2);
+    expect(parsedDetail.bathroom).toBe(1);
+    expect(parsedDetail.garage).toBe(2);
+
+    const cardListing = mapImoveisScCard({
+      title: "Apartamento com 2 quartos no Bairro Costa e Silva em Joinville - 08108.001",
+      href: "/joinville/alugar/apartamento/costa-e-silva/apto-13001781.html",
+      address: "Costa e Silva",
+      price: "R$ 2.350",
+      extraPrice: "2 quartos • 1 suíte • 2 vagas • 66m² Condomínio R$ 430 IPTU R$ 95",
+      image: "https://assets.imoveis-sc.com.br/1.webp",
+    });
+    expect(cardListing?.features.price_aluguel).toBe(2350);
+    expect(cardListing?.features.price_condominio).toBe(430);
+    expect(cardListing?.features.price_iptu).toBe(95);
+    expect(cardListing?.features.garage).toBe(2);
   });
 });

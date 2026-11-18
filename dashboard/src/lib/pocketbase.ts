@@ -609,6 +609,89 @@ function isKnownCitySegment(
   return false;
 }
 
+const EDGE_PUNCT_REGEX = /^[.,;:!?/\\\-–—\s]+|[.,;:!?/\\\-–—\s]+$/g;
+const NEIGHBORHOOD_PREFIX_REGEX =
+  /^(?:(?:no|na)\s+)?(?:bairro\s*:?\s*)?(?:(?:no|na)\s+)?/i;
+const TRAILING_AD_NOISE_PATTERNS: RegExp[] = [
+  /\s*[-–—]\s*\d.*$/u,
+  /\s+(?:dispon[ií]vel\s+)?(?:para|pra|p\/)\s+(?:loca[cç]?[aã]?o?|alugar|aluguel|venda|vender|solteiro|estudante)(?!\p{L}).*$/iu,
+  /\s+(?:por|a\s+partir\s+de|s[oó])\s*R?(?:\$|\b).*$/i,
+  /\s+R\$\s*[\d.,]+.*$/i,
+  /\s+(?:compost[oa]|contendo|com|sendo|possui|tendo)\s+(?:por\s+)?(?:\d+|um|uma|dois|duas|tr[eê]s|quatro)\b.*$/i,
+  /\s+(?:mobiliad[oa]|semimobiliad[oa]|semi[\s-]mobiliad[oa])\b.*$/i,
+  /\s+(?:ref\.?|c[oó]d\.?)\s*[:#.-]?\s*\d+.*$/i,
+];
+const PAREN_NOISE_REGEX = /\b(?:cod|ref|suite|quarto|dorm|vaga)\b/;
+
+function stripNeighborhoodNoise(segment: string): string {
+  let cleaned = segment
+    .trim()
+    .replace(EDGE_PUNCT_REGEX, "")
+    .replace(NEIGHBORHOOD_PREFIX_REGEX, "")
+    .trim();
+
+  for (const pattern of TRAILING_AD_NOISE_PATTERNS) {
+    cleaned = cleaned.replace(pattern, "").trim();
+  }
+
+  return cleaned.replace(EDGE_PUNCT_REGEX, "").trim();
+}
+
+function isParentheticalNoise(
+  insideKey: string,
+  cityKeys: Set<string>,
+): boolean {
+  if (!insideKey || insideKey.length <= 2) return true;
+  if (/\d/.test(insideKey)) return true;
+  if (PAREN_NOISE_REGEX.test(insideKey)) return true;
+  return isKnownCitySegment(insideKey, cityKeys);
+}
+
+/**
+ * Cleans ad-title noise and resolves parenthetical district qualifiers
+ * (e.g. "Dona Francisca (Pirabeiraba)" -> "Pirabeiraba",
+ * while preserving "João Pessoa (Jaraguá do Sul)" -> "João Pessoa").
+ */
+function cleanNeighborhoodSegment(
+  segment: string,
+  cityKeys: Set<string>,
+): string {
+  let cleaned = stripNeighborhoodNoise(segment);
+  if (!cleaned) return "";
+
+  const closedParenMatch = cleaned.match(/^(.+?)\s*\(([^)]+)\)\s*$/);
+  if (closedParenMatch) {
+    const outside = stripNeighborhoodNoise(closedParenMatch[1] ?? "");
+    const inside = stripNeighborhoodNoise(closedParenMatch[2] ?? "");
+    const insideKey = normalizeLocationKey(inside);
+
+    cleaned = isParentheticalNoise(insideKey, cityKeys)
+      ? outside
+      : stripNeighborhoodNoise(inside);
+  } else {
+    const unclosedParenMatch = cleaned.match(/^(.+?)\s*\(([^)]*)$/);
+    if (unclosedParenMatch) {
+      const outside = stripNeighborhoodNoise(unclosedParenMatch[1] ?? "");
+      const inside = stripNeighborhoodNoise(unclosedParenMatch[2] ?? "");
+      const outsideKey = normalizeLocationKey(outside);
+      const insideKey = normalizeLocationKey(inside);
+
+      if (
+        (insideKey && outsideKey.startsWith(insideKey)) ||
+        isParentheticalNoise(insideKey, cityKeys)
+      ) {
+        cleaned = outside;
+      }
+    }
+  }
+
+  if (!cleaned.includes("(")) {
+    cleaned = cleaned.replace(/[()]/g, "");
+  }
+
+  return cleaned.replace(EDGE_PUNCT_REGEX, "").trim();
+}
+
 export function normalizeNeighborhood(
   rawNeighborhood: string,
   city = "",
@@ -637,7 +720,7 @@ export function normalizeNeighborhood(
       const subParts = part.split(/\s*(?:\s[-–—]\s|\/)\s*/);
       return subParts.length > 1 ? subParts : [part];
     })
-    .map((part) => part.replace(/^bairro\s+/i, "").trim())
+    .map((part) => cleanNeighborhoodSegment(part, cityKeys))
     .filter(Boolean);
 
   const nonCityParts = rawParts.filter((part) => {
@@ -653,7 +736,7 @@ export function normalizeNeighborhood(
     (part) => !STREET_PREFIX_REGEX.test(part),
   );
   const chosen = nonStreetParts[0] ?? nonCityParts[0] ?? "";
-  return chosen.replace(/\s*[-–—]\s*\d.*$/u, "").trim();
+  return cleanNeighborhoodSegment(chosen, cityKeys);
 }
 
 const PROPERTY_TYPE_RULES: Array<[RegExp, string]> = [
